@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Field Ninja for Jira",
+  "version": "0.1.0",
+  "description": "Hide or show Jira Cloud issue fields per issue type.",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": ["https://*.atlassian.net/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_popup": "popup.html" },
+  "content_scripts": [
+    {
+      "matches": ["https://*.atlassian.net/browse/*", "https://*.atlassian.net/jira/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "options.html",
+  "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+}

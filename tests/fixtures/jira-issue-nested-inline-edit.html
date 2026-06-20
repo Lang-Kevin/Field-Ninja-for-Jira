@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Jira Issue (Nested Inline-Edit) — ABC-303</title>
+  <style>
+    body { font-family: sans-serif; margin: 16px; }
+    .field-row { margin-bottom: 10px; padding: 6px; border: 1px solid #ddd; }
+  </style>
+</head>
+<body>
+  <!-- Regression fixture: real Jira nests multiple [data-testid*="field"]
+       elements (wrapper / inline-edit / read-view) for the SAME logical
+       field. The outer wrapper carries the customfield_NNNNN token in its
+       data-testid; the nested inner read-view div does NOT (its testid has
+       no customfield_ token at all), so it can only be collapsed via
+       listFields' DOM-containment dedup, not id-token canonicalization
+       alone. The sibling <label> also spuriously matches FIELD_SELECTOR via
+       "field" in "issue.fields.account-label" and must be excluded too.
+       Before the fix this produced multiple toggle buttons for one field. -->
+  <span data-testid="issuetype-icon" aria-label="Story" title="Story"></span>
+  <h1>ABC-303: Nested inline-edit fixture (Story)</h1>
+
+  <div id="nested-fields">
+    <div class="field-row" role="group">
+      <label data-testid="issue.fields.account-label">Account</label>
+      <!-- Outer wrapper: matches FIELD_SELECTOR via data-testid*="field" -->
+      <div
+        data-testid="issue.views.field.single-line-text-inline-edit.customfield_11034"
+        aria-label="Account"
+      >
+        <!-- Nested inner node: also matches FIELD_SELECTOR via data-testid*="field",
+             also carries the same customfield_11034 token. Without the fix this
+             mints a second field id for the same logical field. -->
+        <div
+          data-testid="issue-field-inline-edit-read-view-container-field"
+          aria-label="Account"
+        >
+          Acme Corp
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

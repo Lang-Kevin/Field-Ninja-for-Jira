@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Jira Issue (New View) — ABC-202</title>
+  <style>
+    body { font-family: sans-serif; margin: 16px; }
+    .field-row { margin-bottom: 10px; padding: 6px; border: 1px solid #ddd; }
+  </style>
+</head>
+<body>
+  <!-- Issue-type badge: detected via aria-label, slugified -> "story" -->
+  <span data-testid="issuetype-icon" aria-label="Story" title="Story"></span>
+  <h1>ABC-202: New view fixture (Story)</h1>
+
+  <div id="new-view-fields">
+
+    <!-- Container marker (role=group) lives on the OUTER wrapper, distinct from the field
+         node itself, so findContainer (which starts walking at node.parentElement) resolves
+         a per-field container instead of collapsing every field into the shared list wrapper. -->
+
+    <!-- Branch 1: data-testid -->
+    <div class="field-row" role="group">
+      <label data-testid="issue.fields.summary-label">Summary</label>
+      <div data-testid="issue.fields.summary-field">New view fixture issue</div>
+    </div>
+
+    <div class="field-row" role="group">
+      <label data-testid="issue.fields.assignee-label">Assignee</label>
+      <div data-testid="issue.fields.assignee-field">
+        <button type="button" data-testid="issue.fields.assignee-field.button">Jane Doe</button>
+      </div>
+    </div>
+
+    <div class="field-row" role="group">
+      <label data-testid="issue.fields.status-label">Status</label>
+      <div data-testid="issue.fields.status-field">
+        <button type="button" data-testid="issue.fields.status-field.button">In Progress</button>
+      </div>
+    </div>
+
+    <div class="field-row" role="group">
+      <label data-testid="issue.fields.sprint-label">Sprint</label>
+      <div data-testid="issue.fields.sprint-field">Sprint 12</div>
+    </div>
+
+    <!-- Branch 2: id="customfield_NNNNN", no data-testid (also old-view-style coverage in new view) -->
+    <div class="field-row" role="group">
+      <label for="customfield_10003">Story Points</label>
+      <div id="customfield_10003">8</div>
+    </div>
+
+    <!-- Branch 3: aria-label only, no data-testid/id. class="customfield-priority" is what
+         gets this node selected by FIELD_SELECTOR at all — aria-label alone isn't part of
+         FIELD_SELECTOR, it's only consulted by deriveFieldId after selection. -->
+    <div class="field-row" role="group">
+      <div class="customfield-priority" aria-label="Priority">
+        <button type="button">Medium</button>
+      </div>
+    </div>
+
+    <!-- Branch 4: hash fallback — class="customfield-*" match, no data-testid/id/aria-label -->
+    <div class="field-row" role="group">
+      <div class="customfield-labels">Labels: frontend, urgent</div>
+    </div>
+
+  </div>
+</body>
+</html>

@@ -1,0 +1,20 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+coverage/
+.idea/
+.vscode/
+
+# AI tooling: local-only, not needed for development or publishing
+.claude/
+graphify-out/
+
+# Browser profiles used for manual/Playwright testing — contain real
+# session cookies and saved logins, must never be committed
+.playwright-jira-profile/
+.manual-test-profile/
+
+# Test run artifacts
+test-results/
+.playwright-mcp/

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Jira Issue (Old View) — ABC-101</title>
+  <style>
+    body { font-family: sans-serif; margin: 16px; }
+    .field-row { margin-bottom: 10px; padding: 6px; border: 1px solid #ddd; }
+  </style>
+</head>
+<body>
+  <!-- Issue-type badge: detected via aria-label, slugified -> "story" -->
+  <span data-testid="issue-type-icon" aria-label="Story" title="Story" class="issuetype-icon"></span>
+  <h1>ABC-101: Old view fixture</h1>
+
+  <div id="old-view-fields">
+
+    <!-- Container marker (role=group) lives on the OUTER wrapper, distinct from the field
+         node itself, so findContainer (which starts walking at node.parentElement) resolves
+         a per-field container instead of collapsing every field into the shared list wrapper. -->
+
+    <!-- Branch 2: id="customfield_NNNNN" (no data-testid) -->
+    <div class="field-row" role="group">
+      <label for="customfield_10001">Story Points</label>
+      <div id="customfield_10001">5</div>
+    </div>
+
+    <!-- Old-view classic: id="customfield_*" with classic class naming, no data-testid -->
+    <div class="field-row" role="group">
+      <label for="customfield_10002">Epic Link</label>
+      <div id="customfield_10002">ABC-1</div>
+    </div>
+
+    <!-- Old-view classic: class="customfield-type-..." pattern, no data-testid/id -->
+    <div class="field-row" role="group">
+      <label>Components</label>
+      <div class="customfield-type-select">Backend</div>
+    </div>
+
+    <!-- Branch 3: aria-label only (no data-testid, no id). class="customfield-priority" is
+         what gets this node selected by FIELD_SELECTOR at all — aria-label alone isn't part
+         of FIELD_SELECTOR, it's only consulted by deriveFieldId after selection. -->
+    <div class="field-row" role="group">
+      <div class="customfield-priority" aria-label="Priority">High</div>
+    </div>
+
+    <!-- Branch 4: hash fallback — no data-testid/id/aria-label, just class match + text content -->
+    <div class="field-row" role="group">
+      <div class="customfield-foo">Resolution</div>
+    </div>
+
+    <!-- Plain old-view field with id, has label sibling -->
+    <div class="field-row" role="group">
+      <label for="customfield_10005">Sprint</label>
+      <div id="customfield_10005">Sprint 12</div>
+    </div>
+
+  </div>
+</body>
+</html>

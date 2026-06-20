@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Jira Issue (Epic) — ABC-303</title>
+  <style>
+    body { font-family: sans-serif; margin: 16px; }
+    .field-row { margin-bottom: 10px; padding: 6px; border: 1px solid #ddd; }
+  </style>
+</head>
+<body>
+  <!-- Issue-type badge: detected via aria-label, slugified -> "epic" (different issue type than Story fixtures) -->
+  <span data-testid="issuetype-icon" aria-label="Epic" title="Epic"></span>
+  <h1>ABC-303: New view fixture (Epic)</h1>
+
+  <div id="epic-fields">
+
+    <!-- Container marker (role=group) lives on the OUTER wrapper, distinct from the field
+         node itself, so findContainer (which starts walking at node.parentElement) resolves
+         a per-field container instead of collapsing every field into the shared list wrapper. -->
+
+    <!-- Branch 1: data-testid -->
+    <div class="field-row" role="group">
+      <label data-testid="issue.fields.summary-label">Summary</label>
+      <div data-testid="issue.fields.summary-field">Epic fixture issue</div>
+    </div>
+
+    <div class="field-row" role="group">
+      <label data-testid="issue.fields.epicname-label">Epic Name</label>
+      <div data-testid="issue.fields.epicname-field">Platform Revamp</div>
+    </div>
+
+    <div class="field-row" role="group">
+      <label data-testid="issue.fields.status-label">Status</label>
+      <div data-testid="issue.fields.status-field">
+        <button type="button" data-testid="issue.fields.status-field.button">To Do</button>
+      </div>
+    </div>
+
+    <!-- Branch 2: id="customfield_NNNNN", no data-testid -->
+    <div class="field-row" role="group">
+      <label for="customfield_10004">Epic Color</label>
+      <div id="customfield_10004">Purple</div>
+    </div>
+
+    <!-- Branch 3: aria-label only, no data-testid/id. class="customfield-priority" is what
+         gets this node selected by FIELD_SELECTOR at all — aria-label alone isn't part of
+         FIELD_SELECTOR, it's only consulted by deriveFieldId after selection. -->
+    <div class="field-row" role="group">
+      <div class="customfield-priority" aria-label="Priority">
+        <button type="button">Low</button>
+      </div>
+    </div>
+
+    <!-- Branch 4: hash fallback — class="customfield-*" match, no data-testid/id/aria-label -->
+    <div class="field-row" role="group">
+      <div class="customfield-labels">Labels: epic, planning</div>
+    </div>
+
+  </div>
+</body>
+</html>

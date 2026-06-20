@@ -30,7 +30,3 @@ Field Ninja for Jira does not collect, transmit, sell, or share any data.
 - Host access to `https://*.atlassian.net/*` — the content script only runs
   on Jira Cloud issue pages, where it adjusts the visibility of field
   elements already present in the page DOM.
-
-## Contact
-
-Questions or concerns: kevinlangprivat@gmail.com

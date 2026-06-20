@@ -12,7 +12,7 @@ Ninja lets you hide any field with one click, remembers your choice per
 issue type (hiding *Story Points* on a Story doesn't touch Epics or Bugs),
 and needs zero Jira admin permissions to use.
 
-> 📸 *Screenshot/GIF coming soon — drop one in `docs/` and link it here.*
+https://github.com/user-attachments/assets/8df1581d-57e7-4b6a-8fa7-2004cf545f1f
 
 ## Features
 

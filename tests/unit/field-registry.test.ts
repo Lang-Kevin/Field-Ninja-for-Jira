@@ -175,6 +175,38 @@ describe('listFields empty multiline field via heading-only markup', () => {
   });
 });
 
+describe('listFields labels-row duplicate-button regression', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('collapses sibling field elements inside anonymous wrappers under a shared labeled container into one field', () => {
+    // Real Jira labels row: the outer container has no CONTAINER_MARKER
+    // attribute (no role="group", no "field" in testid), but contains a
+    // <label> and two customfield-matching siblings each inside their own
+    // anonymous wrapper. The old fallback only checked the immediate parent
+    // (the anonymous wrapper, which has no label) and returned each field
+    // element itself as containerNode — two containers, two buttons.
+    document.body.innerHTML = `
+      <div data-testid="issue.views.issue-base.context.labels">
+        <label>Labels</label>
+        <div>
+          <div class="customfield-labels-view">frontend, urgent</div>
+        </div>
+        <div>
+          <div class="customfield-labels-edit">+</div>
+        </div>
+      </div>
+    `;
+
+    const fields = listFields(document.body);
+    expect(fields).toHaveLength(1);
+    expect(fields[0]?.containerNode.getAttribute('data-testid')).toBe(
+      'issue.views.issue-base.context.labels'
+    );
+  });
+});
+
 describe('listPanels', () => {
   afterEach(() => {
     document.body.innerHTML = '';

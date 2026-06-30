@@ -14,6 +14,8 @@ graphify-out/
 # session cookies and saved logins, must never be committed
 .playwright-jira-profile/
 .manual-test-profile/
+.agents/agent-browser-state/
+.agents/jira-profile/
 
 # Test run artifacts
 test-results/

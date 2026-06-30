@@ -12,6 +12,7 @@ export interface GetFieldsMessage {
 export interface GetFieldsResponse {
   onIssuePage: boolean;
   issueTypeId: string;
+  projectKey: string | null;
   fields: PopupFieldInfo[];
 }
 

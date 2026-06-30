@@ -41,13 +41,14 @@ const EYE_CLOSED_GLYPH = '\u{1F648}'; // 🙈
  */
 function commitFieldVisibility(
   field: FieldMeta,
+  projectKey: string | null,
   issueTypeId: string,
   hidden: boolean,
   onCommit?: (fieldId: string, hidden: boolean) => void
 ): void {
   applyFieldVisibility(field, hidden);
   onCommit?.(field.id, hidden);
-  void persistFieldVisibility(issueTypeId, field.id, hidden).catch((err) => {
+  void persistFieldVisibility(projectKey, issueTypeId, field.id, hidden).catch((err) => {
     // Best-effort persistence; visual state already reflects user intent,
     // but log so a real failure (e.g. quota exceeded) isn't fully silent.
     console.error('[jfv] failed to persist field visibility', err);
@@ -68,6 +69,7 @@ function toggleButtonLabel(fieldLabel: string, hidden: boolean): string {
  */
 export function mountFieldToggle(
   field: FieldMeta,
+  projectKey: string | null,
   issueTypeId: string,
   initiallyHidden: boolean,
   onCommit?: (fieldId: string, hidden: boolean) => void
@@ -89,7 +91,7 @@ export function mountFieldToggle(
 
   button.addEventListener('click', () => {
     hidden = !hidden;
-    commitFieldVisibility(field, issueTypeId, hidden, onCommit);
+    commitFieldVisibility(field, projectKey, issueTypeId, hidden, onCommit);
     markOwnMutation(() => {
       button.setAttribute('aria-label', toggleButtonLabel(field.label, hidden));
       button.textContent = hidden ? EYE_CLOSED_GLYPH : EYE_OPEN_GLYPH;

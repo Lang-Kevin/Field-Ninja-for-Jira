@@ -3,7 +3,14 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 function createMockChromeStorage() {
   let store: Record<string, unknown> = {};
   return {
-    get: vi.fn((key: string) => {
+    get: vi.fn((key: string | string[]) => {
+      if (Array.isArray(key)) {
+        const result: Record<string, unknown> = {};
+        for (const k of key) {
+          if (k in store) result[k] = store[k];
+        }
+        return Promise.resolve(result);
+      }
       return Promise.resolve(key in store ? { [key]: store[key] } : {});
     }),
     set: vi.fn((items: Record<string, unknown>) => {
@@ -156,15 +163,15 @@ describe('applyVisibility', () => {
   it('hides only the current issueType\'s hidden fields, leaving others visible (per-issueType isolation)', async () => {
     mockStorage._seed({
       [PREFS_STORAGE_KEY]: {
-        TYPE_A: { issueTypeId: 'TYPE_A', hiddenFieldIds: ['f1'] },
-        TYPE_B: { issueTypeId: 'TYPE_B', hiddenFieldIds: ['f2'] },
+        '*:TYPE_A': { projectKey: '*', issueTypeId: 'TYPE_A', hiddenFieldIds: ['f1'] },
+        '*:TYPE_B': { projectKey: '*', issueTypeId: 'TYPE_B', hiddenFieldIds: ['f2'] },
       },
     });
 
     const f1 = makeField('f1', false); // hidden under TYPE_A
     const f2 = makeField('f2', false); // hidden under TYPE_B, but NOT under TYPE_A — must stay visible
 
-    await applyVisibility('TYPE_A', [f1, f2]);
+    await applyVisibility(null, 'TYPE_A', [f1, f2]);
     await flushRaf();
 
     expect(isHidden(f1.containerNode)).toBe(true);
@@ -174,15 +181,15 @@ describe('applyVisibility', () => {
   it('applies TYPE_B prefs independently when called for TYPE_B', async () => {
     mockStorage._seed({
       [PREFS_STORAGE_KEY]: {
-        TYPE_A: { issueTypeId: 'TYPE_A', hiddenFieldIds: ['f1'] },
-        TYPE_B: { issueTypeId: 'TYPE_B', hiddenFieldIds: ['f2'] },
+        '*:TYPE_A': { projectKey: '*', issueTypeId: 'TYPE_A', hiddenFieldIds: ['f1'] },
+        '*:TYPE_B': { projectKey: '*', issueTypeId: 'TYPE_B', hiddenFieldIds: ['f2'] },
       },
     });
 
     const f1 = makeField('f1', false);
     const f2 = makeField('f2', false);
 
-    await applyVisibility('TYPE_B', [f1, f2]);
+    await applyVisibility(null, 'TYPE_B', [f1, f2]);
     await flushRaf();
 
     expect(isHidden(f2.containerNode)).toBe(true);
@@ -194,7 +201,7 @@ describe('applyVisibility', () => {
 
     const f1 = makeField('f1', false);
 
-    await expect(applyVisibility('TYPE_A', [f1])).resolves.toBeUndefined();
+    await expect(applyVisibility(null, 'TYPE_A', [f1])).resolves.toBeUndefined();
     await flushRaf();
 
     expect(isHidden(f1.containerNode)).toBe(false); // nothing hidden, no throw
@@ -203,13 +210,13 @@ describe('applyVisibility', () => {
   it('is a no-op (no scheduled write) when no field needs to change', async () => {
     mockStorage._seed({
       [PREFS_STORAGE_KEY]: {
-        TYPE_A: { issueTypeId: 'TYPE_A', hiddenFieldIds: [] },
+        '*:TYPE_A': { projectKey: '*', issueTypeId: 'TYPE_A', hiddenFieldIds: [] },
       },
     });
 
     const f1 = makeField('f1', false); // already visible, desired visible — no diff
 
-    await applyVisibility('TYPE_A', [f1]);
+    await applyVisibility(null, 'TYPE_A', [f1]);
     await flushRaf();
 
     expect(isHidden(f1.containerNode)).toBe(false);

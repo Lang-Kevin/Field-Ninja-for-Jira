@@ -52,7 +52,10 @@ export async function launchExtension(): Promise<ExtensionTestContext> {
   return {
     browser,
     fixtureServer,
-    fixtureUrl: (fileName: string) => `${fixtureServer.url}/${fileName}`,
+    // ponytail: route through /browse/<key> so jira-context-resolver.ts's
+    // URL gate (onIssuePage) is satisfied on first paint — see
+    // fixture-server.ts's /browse/ handling.
+    fixtureUrl: (fileName: string) => `${fixtureServer.url}/browse/TEST-1?fixture=${fileName}`,
     teardown: async () => {
       await browser.close();
       await fixtureServer.close();

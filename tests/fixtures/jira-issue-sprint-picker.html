@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Jira Issue (Sprint Picker) — ABC-303</title>
+  <style>
+    body { font-family: sans-serif; margin: 16px; }
+    .field-row { margin-bottom: 10px; padding: 6px; border: 1px solid #ddd; }
+  </style>
+</head>
+<body>
+  <span data-testid="issuetype-icon" aria-label="Story" title="Story"></span>
+  <h1>ABC-303: Sprint picker fixture (Story)</h1>
+
+  <div id="new-view-fields">
+    <div class="field-row">
+      <div data-testid="issue.fields.summary-field" aria-label="Summary">Sprint picker fixture issue</div>
+    </div>
+
+    <!--
+      Real Jira's Sprint field swaps its read-view for an autofocused
+      edit-view (a brand-new DOM node, not a mutation of the old one) the
+      instant it's clicked, exactly like Atlaskit's inline-edit components.
+      The edit-view's own search input is autofocused so the dropdown is
+      immediately ready for typing.
+
+      Deliberately no role="group" wrapper and no nearby <label> element:
+      that's what makes findContainer() resolve containerNode to the field's
+      OWN testid'd node instead of a stable outer row (see field-registry.ts's
+      findContainer fallback). With a stable role=group/labeled wrapper, the
+      existing fieldToggleMap-keyed-by-container fix already protects this
+      case, because the wrapper's identity never changes across the swap —
+      that's the (non-bug-reproducing) shape this fixture used to have. Real
+      Jira's Sprint field has no such wrapper, so the swap really does produce
+      a brand-new container identity each time.
+    -->
+    <div class="field-row" id="sprint-row">
+      <div data-testid="issue.fields.sprint-field" id="sprint-read-view" aria-label="Sprint">Sprint 12</div>
+    </div>
+  </div>
+
+  <script>
+    // ponytail: minimal stand-in for Atlaskit's inline-edit + Select pattern —
+    // just enough behavior to reproduce the real closing bug, not a full reimplementation.
+    const row = document.getElementById('sprint-row');
+
+    function openEditView() {
+      const readView = document.getElementById('sprint-read-view');
+      if (!readView) return;
+
+      const editView = document.createElement('div');
+      // Atlaskit menu testids follow "<base>--menu" — still substring-matches
+      // FIELD_SELECTOR's "field" token because the base testid is
+      // "issue.fields.sprint-field".
+      editView.setAttribute('data-testid', 'issue.fields.sprint-field--menu');
+      editView.id = 'sprint-edit-view';
+      editView.innerHTML = '<input type="text" id="sprint-search" placeholder="Search sprints..." /><ul id="sprint-options"><li>Sprint 12</li><li>Sprint 13</li></ul>';
+      readView.replaceWith(editView);
+
+      const input = document.getElementById('sprint-search');
+      input.focus();
+
+      // Real Jira/Atlaskit closes the open picker the instant something
+      // OTHER than its own typing/filtering logic writes into its subtree
+      // (e.g. an unexpected child node appearing mid-edit). Reproduce that
+      // closing behavior here so a regression shows up as the edit-view
+      // disappearing from the DOM.
+      const closeObserver = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+          for (const node of Array.from(m.addedNodes)) {
+            if (node instanceof Element && node.classList.contains('jfv-field-toggle')) {
+              closeObserver.disconnect();
+              const restored = document.createElement('div');
+              restored.setAttribute('data-testid', 'issue.fields.sprint-field');
+              restored.id = 'sprint-read-view';
+              restored.textContent = 'Sprint 12';
+              editView.replaceWith(restored);
+              return;
+            }
+          }
+        }
+      });
+      closeObserver.observe(editView, { childList: true, subtree: true });
+
+      input.addEventListener('input', () => {
+        // Typing re-filters the option list — ordinary Jira-driven DOM
+        // mutation inside the open picker, independent of the extension.
+        const options = document.getElementById('sprint-options');
+        if (options) {
+          options.innerHTML = '<li>Sprint ' + (input.value || '12/13') + '</li>';
+        }
+      });
+    }
+
+    row.addEventListener('click', (e) => {
+      if (document.getElementById('sprint-read-view')) {
+        openEditView();
+      }
+    });
+  </script>
+</body>
+</html>

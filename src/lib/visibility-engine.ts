@@ -166,6 +166,30 @@ export function computeHiddenSelectors(
   return selectors;
 }
 
+/**
+ * A section whose field list is non-empty and every field is hidden should
+ * itself be hidden — mirrors computeHiddenTabs but for the collapsible section
+ * wrappers ("Details", "Development") in Jira's sidebar.
+ */
+export function computeHiddenSections(
+  sections: HTMLElement[],
+  fields: FieldMeta[],
+  hiddenFieldIds: ReadonlySet<string> | string[]
+): HTMLElement[] {
+  const hiddenSet =
+    hiddenFieldIds instanceof Set ? hiddenFieldIds : new Set(hiddenFieldIds);
+
+  return sections.filter((section) => {
+    const sectionFields = fields.filter((field) =>
+      section.contains(field.containerNode)
+    );
+    return (
+      sectionFields.length > 0 &&
+      sectionFields.every((field) => !field.protected && hiddenSet.has(field.id))
+    );
+  });
+}
+
 let styleEl: HTMLStyleElement | null = null;
 
 /**
@@ -202,6 +226,7 @@ export function syncHiddenStylesheet(selectors: string[]): void {
  * `issueTypeId` passed in.
  */
 export async function applyVisibility(
+  projectKey: string | null,
   issueTypeId: string,
   fields: FieldMeta[]
 ): Promise<void> {
@@ -213,7 +238,7 @@ export async function applyVisibility(
 
   let hiddenFieldIds: string[] = [];
   try {
-    const pref = await getPref(issueTypeId);
+    const pref = await getPref(projectKey, issueTypeId);
     hiddenFieldIds = pref.hiddenFieldIds;
   } catch {
     // Treat load failure as "nothing hidden".

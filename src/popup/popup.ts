@@ -35,7 +35,7 @@ function renderFields(response: GetFieldsResponse | undefined): void {
     return;
   }
 
-  const { issueTypeId } = response;
+  const { issueTypeId, projectKey } = response;
   for (const field of response.fields) {
     const row = document.createElement('label');
     row.className = 'jfv-field-row';
@@ -44,7 +44,7 @@ function renderFields(response: GetFieldsResponse | undefined): void {
     checkbox.type = 'checkbox';
     checkbox.checked = !field.hidden;
     checkbox.addEventListener('change', () => {
-      void toggleField(issueTypeId, field.id, !checkbox.checked);
+      void toggleField(projectKey, issueTypeId, field.id, !checkbox.checked);
     });
 
     const labelText = document.createElement('span');

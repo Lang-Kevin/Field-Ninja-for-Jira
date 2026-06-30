@@ -18,6 +18,28 @@ function contentTypeFor(filePath: string): string {
   return CONTENT_TYPES[path.extname(filePath).toLowerCase()] ?? "application/octet-stream";
 }
 
+function serveFixture(relativePath: string, res: http.ServerResponse): void {
+  const resolvedPath = path.resolve(FIXTURES_DIR, "." + relativePath);
+  const isWithinFixturesDir =
+    resolvedPath === FIXTURES_DIR || resolvedPath.startsWith(FIXTURES_DIR + path.sep);
+
+  if (!isWithinFixturesDir) {
+    res.writeHead(403, { "Content-Type": "text/plain" });
+    res.end("Forbidden");
+    return;
+  }
+
+  fs.readFile(resolvedPath, (err, data) => {
+    if (err) {
+      res.writeHead(404, { "Content-Type": "text/plain" });
+      res.end("Not found");
+      return;
+    }
+    res.writeHead(200, { "Content-Type": contentTypeFor(resolvedPath) });
+    res.end(data);
+  });
+}
+
 export interface FixtureServerHandle {
   url: string;
   close: () => Promise<void>;
@@ -28,28 +50,21 @@ export function startFixtureServer(
 ): Promise<FixtureServerHandle> {
   const server = http.createServer((req, res) => {
     const requestUrl = req.url ?? "/";
-    const pathname = decodeURIComponent(requestUrl.split("?")[0] ?? "/");
-    const relativePath = pathname === "/" ? "/jira-issue-old-view.html" : pathname;
-
-    const resolvedPath = path.resolve(FIXTURES_DIR, "." + relativePath);
-    const isWithinFixturesDir =
-      resolvedPath === FIXTURES_DIR || resolvedPath.startsWith(FIXTURES_DIR + path.sep);
-
-    if (!isWithinFixturesDir) {
-      res.writeHead(403, { "Content-Type": "text/plain" });
-      res.end("Forbidden");
+    const [rawPathname, query] = requestUrl.split("?");
+    const pathname = decodeURIComponent(rawPathname ?? "/");
+    // ponytail: jira-context-resolver.ts only activates the extension on a
+    // /browse/<KEY> pathname, so fixture pages are served at /browse/<key>
+    // with the actual fixture file named via ?fixture= — lets every test
+    // page.goto() straight into a URL the resolver recognizes as an issue
+    // page, no extra pushState dance needed.
+    if (pathname.startsWith("/browse/")) {
+      const fixtureFile = new URLSearchParams(query ?? "").get("fixture");
+      const relativePath = fixtureFile ? `/${fixtureFile}` : "/jira-issue-old-view.html";
+      serveFixture(relativePath, res);
       return;
     }
-
-    fs.readFile(resolvedPath, (err, data) => {
-      if (err) {
-        res.writeHead(404, { "Content-Type": "text/plain" });
-        res.end("Not found");
-        return;
-      }
-      res.writeHead(200, { "Content-Type": contentTypeFor(resolvedPath) });
-      res.end(data);
-    });
+    const relativePath = pathname === "/" ? "/jira-issue-old-view.html" : pathname;
+    serveFixture(relativePath, res);
   });
 
   return new Promise((resolve, reject) => {

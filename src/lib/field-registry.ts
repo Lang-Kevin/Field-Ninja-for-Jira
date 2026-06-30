@@ -74,6 +74,56 @@ const PANEL_SELECTOR = '[data-testid*="panel"], [data-testid*="-panel"]';
 const GLOBAL_NAV_EXCLUDE_SELECTOR = '[aria-label="Sidebar"]';
 
 /**
+ * Jira's "Child work items" panel — renders child issue rows in a table.
+ * Its heading/chrome elements have testids containing "child-issues-panel"
+ * and substring-match PANEL_SELECTOR, but they are Jira's own rendering
+ * chrome, not user-toggleable fields. The data grid region is excluded via
+ * its aria-label. Both checks are done via closest() so nested elements
+ * (e.g. priority/status readviews rendered per child-issue row) are also
+ * caught without listing every possible inner testid.
+ */
+const CHILD_ISSUES_EXCLUDE_SELECTOR =
+  '[data-testid*="child-issues-panel"], [aria-label="Child work items section"]';
+
+/**
+ * Jira's own drag-reorder chrome around the field list: `sortable-item-list`
+ * and its `sortable-item-container-<id>` / `draggable-container` /
+ * `droppable-container` wrappers. These aren't fields, but
+ * `sortable-item-container-customfield_X`'s testid contains "field"
+ * (via "customfield"), so it can match FIELD_SELECTOR/CONTAINER_MARKER_SELECTOR
+ * like a real field. Confirmed live: querySelectorAll returns it before the
+ * real (narrower) field marker nested inside it, so the containment-collapse
+ * dedup in listFields picks the chrome node as the sole candidate, discarding
+ * the real one — findContainer then can't find any marker above it and falls
+ * back to climbing for the nearest ancestor with ANY label-ish descendant,
+ * which can land on `droppable-container` (wraps every sibling field) when a
+ * neighboring field happens to expose a label-matching testid. Excluded
+ * outright, like GLOBAL_NAV_EXCLUDE_SELECTOR.
+ *
+ * Also covers the next layer of layout chrome out: Jira's collapsible
+ * section wrappers (`...ui.context-group.*`, `...collapsible-group-factory.*`
+ * — e.g. "Your pinned fields", "Development", "Automation"). Once
+ * sortable-item-list is excluded, the same climb-for-nearest-labeled-ancestor
+ * fallback above just walks past it and lands on THIS wrapper instead (it
+ * also contains many labeled fields, so `querySelector(LABEL_SELECTOR)`
+ * matches), wrongly treating an entire collapsible section as one field's
+ * container. Its testid also substring-matches PANEL_SELECTOR (contains
+ * "panel" for some sections, e.g. "development-context-panel"), so
+ * listPanels() must exclude it too — see its candidate-filter loop.
+ */
+const SORTABLE_CHROME_EXCLUDE_SELECTOR =
+  '[data-testid*="sortable-item-list"], [data-testid*="context-group"], [data-testid*="collapsible-group-factory"]';
+
+/**
+ * Selector for Jira's collapsible section wrappers (e.g. "Details",
+ * "Development"). These are the same nodes excluded from field/panel scanning
+ * via SORTABLE_CHROME_EXCLUDE_SELECTOR — they're not fields themselves, but
+ * we want to auto-hide them when all their child fields are hidden.
+ */
+const SECTION_SELECTOR =
+  '[data-testid*="context-group"], [data-testid*="collapsible-group-factory"]';
+
+/**
  * Provisional selector for a label element near a field. Hardened in
  * Wave 5/7 with real Jira fixtures.
  */
@@ -92,10 +142,12 @@ const PROTECTED_LABELS = new Set(['summary', 'status']);
  * letting a toggle button get mounted inside Jira's own container. Catch
  * them by testid instead, since that's stable regardless of issue content.
  * - "issue-field-summary": Summary's read-only value container.
+ * - "issue-field-status": Status's view/edit container (label derives from
+ *   the current status value, not "Status", so PROTECTED_LABELS misses it).
  * - "ref-spotlight-target-status-spotlight": Status's onboarding-tour
  *   spotlight wrapper.
  */
-const PROTECTED_TESTID_SUBSTRINGS = ['issue-field-summary', 'ref-spotlight-target-status-spotlight'];
+const PROTECTED_TESTID_SUBSTRINGS = ['issue-field-summary', 'issue-field-status', 'ref-spotlight-target-status-spotlight'];
 
 /**
  * `closest()` selector built from PROTECTED_TESTID_SUBSTRINGS. Unlike
@@ -126,7 +178,7 @@ export function findContainer(node: Element): Element {
   let current: Element | null = node.parentElement;
   for (let i = 0; i < MAX_CONTAINER_WALK && current; i++) {
     try {
-      if (current.matches(CONTAINER_MARKER_SELECTOR)) {
+      if (!current.matches(SORTABLE_CHROME_EXCLUDE_SELECTOR) && current.matches(CONTAINER_MARKER_SELECTOR)) {
         return current;
       }
     } catch {
@@ -141,15 +193,23 @@ export function findContainer(node: Element): Element {
   // wiping any style.display write or mounted toggle button, whereas the
   // field's own marker-matching node is stable across renders.
   try {
-    if (node.matches(CONTAINER_MARKER_SELECTOR)) {
-      // The node's own testid can substring-match the marker (e.g.
-      // "issue.views.field.rich-text.customfield_12042" contains "field")
-      // even though it's only the value half of a label+value pair living
-      // in an unmarked wrapper div. If its parent also holds a label
-      // sibling, the parent is the real row to hide — use it instead.
-      const parent = node.parentElement;
-      if (parent && parent.querySelector(LABEL_SELECTOR)) {
-        return parent;
+    if (!node.matches(SORTABLE_CHROME_EXCLUDE_SELECTOR) && node.matches(CONTAINER_MARKER_SELECTOR)) {
+      // Climb up looking for the closest labeled ancestor — that's the real
+      // "field row". Checking only the immediate parent misses the case where
+      // sibling field-matching elements (e.g. a labels read-view div and an
+      // edit button, each in their own anonymous wrapper) live under a shared
+      // labeled container: each sibling resolved to its own anonymous wrapper
+      // and each got a separate toggle button.
+      let p: Element | null = node.parentElement;
+      for (let i = 0; i < MAX_CONTAINER_WALK && p; i++) {
+        try {
+          if (!p.matches(SORTABLE_CHROME_EXCLUDE_SELECTOR) && p.querySelector(LABEL_SELECTOR)) {
+            return p;
+          }
+        } catch {
+          // ignore selector errors at this level
+        }
+        p = p.parentElement;
       }
       return node;
     }
@@ -311,11 +371,19 @@ export function listFields(root?: ParentNode): FieldMeta[] {
     if (el.tagName === 'LABEL') {
       continue;
     }
+    if (el.matches(SORTABLE_CHROME_EXCLUDE_SELECTOR)) {
+      continue;
+    }
     if (kept.some((k) => k.contains(el))) {
       continue;
     }
     kept.push(el);
   }
+
+  // ponytail: dedupe by containerNode — siblings inside the same field
+  // wrapper (e.g. labels inline-edit parts) each match FIELD_SELECTOR but
+  // resolve to the same container; only the first one wins a toggle button.
+  const seenContainers = new Set<Element>();
 
   for (const el of kept) {
     try {
@@ -325,11 +393,18 @@ export function listFields(root?: ParentNode): FieldMeta[] {
       if (el.closest(GLOBAL_NAV_EXCLUDE_SELECTOR)) {
         continue;
       }
+      if (el.closest(CHILD_ISSUES_EXCLUDE_SELECTOR)) {
+        continue;
+      }
       const label = deriveLabel(el);
       const containerNode = headingOnlySet.has(el) ? findHeadingContainer(el) : findContainer(el);
       if (!(containerNode instanceof HTMLElement)) {
         continue;
       }
+      if (seenContainers.has(containerNode)) {
+        continue;
+      }
+      seenContainers.add(containerNode);
       const id = deriveFieldId(el, label);
 
       const meta: FieldMeta = {
@@ -387,6 +462,24 @@ export function listTabs(root?: ParentNode): TabMeta[] {
 }
 
 /**
+ * Query `root` (defaults to `document`) for Jira's collapsible section
+ * wrappers (e.g. "Details", "Development") — the same nodes that
+ * SORTABLE_CHROME_EXCLUDE_SELECTOR prevents from being treated as field
+ * containers. Returns raw HTMLElement[] since a section IS its own container;
+ * there's no separate "value node" distinction needed.
+ */
+export function listSections(root?: ParentNode): HTMLElement[] {
+  const scope = root ?? document;
+  try {
+    return Array.from(scope.querySelectorAll(SECTION_SELECTOR)).filter(
+      (el): el is HTMLElement => el instanceof HTMLElement
+    );
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Query `root` (defaults to `document`) for plausible sidebar app panels
  * (e.g. Automation, Tempo) and map each to a FieldMeta. Unlike listFields,
  * a panel acts as both its own node and its own container — there's no
@@ -413,14 +506,31 @@ export function listPanels(root?: ParentNode): FieldMeta[] {
       if (el.closest(GLOBAL_NAV_EXCLUDE_SELECTOR)) {
         continue;
       }
+      if (el.closest(CHILD_ISSUES_EXCLUDE_SELECTOR)) {
+        continue;
+      }
+      // Jira's own collapsible-section wrappers (e.g.
+      // "...collapsible-group-factory.development-context-panel") substring-
+      // match PANEL_SELECTOR via "panel" but are layout chrome around a whole
+      // group of fields, not a single third-party app panel — see
+      // SORTABLE_CHROME_EXCLUDE_SELECTOR's doc comment.
+      if (el.matches(SORTABLE_CHROME_EXCLUDE_SELECTOR)) {
+        continue;
+      }
       const label = deriveLabel(el);
       const id = deriveFieldId(el, label);
+
+      // ponytail: climb to parent only when it wraps the panel title sibling
+      const titleSibling = el.parentElement?.querySelector('[data-testid$=".title"]');
+      const containerNode = (titleSibling && el.parentElement instanceof HTMLElement)
+        ? el.parentElement
+        : el;
 
       const meta: FieldMeta = {
         id,
         label,
         node: el,
-        containerNode: el,
+        containerNode,
         protected: PROTECTED_LABELS.has(normalizeLabel(label)),
       };
       byId.set(id, meta);

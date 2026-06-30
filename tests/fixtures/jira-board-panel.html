@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<!--
+  Board view with an issue opened in the detail panel (?selectedIssue=…).
+  Board cards sit in the DOM behind the modal panel, each with its OWN
+  issue-type badge + field nodes. The extension must scope to the panel:
+  read the panel's issue type ("Story"), not a card's ("Bug"), and only the
+  panel's fields, not the cards'. Mirrors live Jira testids confirmed via
+  agent-browser (issue.views.issue-details.issue-modal.modal-dialog +
+  issue-view-foundation.noneditable-issue-type.button).
+-->
+<html>
+<body>
+  <!-- Board column with cards behind the panel -->
+  <div data-testid="platform-board-kit.ui.column">
+    <div data-testid="issue-line-card.card-container.DEV-1">
+      <span data-testid="issue-line-card-issue-type.issue-type" aria-label="Bug" title="Bug"></span>
+      <div data-testid="issue-field-priority" aria-label="Priority">High</div>
+    </div>
+    <div data-testid="issue-line-card.card-container.DEV-2">
+      <span data-testid="issue-line-card-issue-type.issue-type" aria-label="Task" title="Task"></span>
+      <div data-testid="issue-field-assignee" aria-label="Assignee">Jane</div>
+    </div>
+  </div>
+
+  <!-- Opened issue detail panel (the modal) -->
+  <div role="dialog" data-testid="issue.views.issue-details.issue-modal.modal-dialog">
+    <button data-testid="issue-view-foundation.noneditable-issue-type.button" aria-label="Story" title="Story"></button>
+    <div data-testid="issue-field-labels" aria-label="Labels">backend</div>
+    <div data-testid="issue-field-components" aria-label="Components">API</div>
+    <!-- Linked-issue card rendered INSIDE the panel — carries its own
+         issue-line-card-issue-type badge; must NOT be read as the issue type. -->
+    <div data-testid="issue-line-card.card-container.DEV-9">
+      <span data-testid="issue-line-card-issue-type.issue-type" aria-label="Epic" title="Epic"></span>
+    </div>
+  </div>
+</body>
+</html>

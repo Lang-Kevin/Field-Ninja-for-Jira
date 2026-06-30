@@ -1,5 +1,12 @@
 import type { Pref, PrefsStore, Settings } from '../types/prefs';
-import { PREFS_STORAGE_KEY, SETTINGS_STORAGE_KEY, DEFAULT_SETTINGS } from '../types/prefs';
+import {
+  PREFS_STORAGE_KEY,
+  PREFS_STORAGE_KEY_V1,
+  SETTINGS_STORAGE_KEY,
+  DEFAULT_SETTINGS,
+  DEFAULT_PROJECT_KEY,
+  makePrefKey,
+} from '../types/prefs';
 import { isKnownIssueType } from './jira-context-resolver';
 
 /**
@@ -13,20 +20,58 @@ import { isKnownIssueType } from './jira-context-resolver';
  * via this module's own toggleField — not writes from other contexts/tabs —
  * so it isn't a general "is storage settled" signal and shouldn't be reused
  * as one elsewhere (e.g. the options page) without re-checking that scoping.
+ *
+ * Storage escape-hatch note: savePrefs caps the single v2 item at
+ * QUOTA_BYTES_PER_ITEM (8KB). If per-project × per-type entry count ever
+ * exceeds that, split into per-project keys `jiraFieldVisibility:v2:${projectKey}`
+ * (chrome.storage.sync allows up to 512 items / 100KB total).
  */
 
 export function migrateIfNeeded(raw: unknown): PrefsStore {
   if (raw === null || raw === undefined || typeof raw !== 'object') {
     return {};
   }
-  // v1 is the only storage version so far — assume shape is already valid.
-  return raw as PrefsStore;
+  const obj = raw as Record<string, unknown>;
+  const keys = Object.keys(obj);
+  // Detect v1: any key without ':' means this is a legacy (pre-v2) store.
+  // v2 keys always contain ':' (composite `projectKey:issueTypeId` format).
+  if (keys.length > 0 && keys.some((k) => !k.includes(':'))) {
+    const migrated: PrefsStore = {};
+    for (const [issueTypeId, pref] of Object.entries(obj)) {
+      const compositeKey = makePrefKey(DEFAULT_PROJECT_KEY, issueTypeId);
+      migrated[compositeKey] = {
+        projectKey: DEFAULT_PROJECT_KEY,
+        issueTypeId,
+        hiddenFieldIds: (pref as { hiddenFieldIds?: string[] }).hiddenFieldIds ?? [],
+      };
+    }
+    return migrated;
+  }
+  return obj as PrefsStore;
 }
 
 export async function loadPrefs(): Promise<PrefsStore> {
-  const result = await chrome.storage.sync.get(PREFS_STORAGE_KEY);
-  const raw = result[PREFS_STORAGE_KEY];
-  return migrateIfNeeded(raw);
+  const result = await chrome.storage.sync.get([PREFS_STORAGE_KEY, PREFS_STORAGE_KEY_V1]);
+  const rawV2 = result[PREFS_STORAGE_KEY];
+  if (rawV2 !== undefined) {
+    return migrateIfNeeded(rawV2);
+  }
+  // No v2 data — attempt lazy migration from v1
+  const rawV1 = result[PREFS_STORAGE_KEY_V1];
+  if (rawV1 === undefined) {
+    return {};
+  }
+  const migrated = migrateIfNeeded(rawV1);
+  // Merge guard: re-read v2 immediately before writing so a concurrent tab
+  // that wrote v2 during our async gap isn't clobbered. Existing v2 entries
+  // WIN over migrated ones. Not fully atomic (no storage transactions), but
+  // the gap shrinks to negligible — the only remaining window is the single
+  // round-trip between this get and the following set.
+  const { [PREFS_STORAGE_KEY]: latestV2 = {} } = await chrome.storage.sync.get(PREFS_STORAGE_KEY);
+  const merged = { ...migrated, ...(latestV2 as Record<string, unknown>) };
+  await savePrefs(merged as PrefsStore);
+  await chrome.storage.sync.remove(PREFS_STORAGE_KEY_V1);
+  return merged as PrefsStore;
 }
 
 export async function savePrefs(store: PrefsStore): Promise<void> {
@@ -43,14 +88,37 @@ export async function savePrefs(store: PrefsStore): Promise<void> {
   await chrome.storage.sync.set(payload);
 }
 
-export async function getPref(issueTypeId: string): Promise<Pref> {
+/**
+ * Returns the pref for a project+issueType combo.
+ * Null projectKey is coerced to DEFAULT_PROJECT_KEY ('*') at this boundary.
+ * Falls back to wildcard bucket `*:${issueTypeId}` when no exact entry exists.
+ */
+export async function getPref(projectKey: string | null, issueTypeId: string): Promise<Pref> {
+  const resolvedProjectKey = projectKey ?? DEFAULT_PROJECT_KEY;
   const store = await loadPrefs();
-  return store[issueTypeId] ?? { issueTypeId, hiddenFieldIds: [] };
+  const exactKey = makePrefKey(resolvedProjectKey, issueTypeId);
+  const wildcardKey = makePrefKey(DEFAULT_PROJECT_KEY, issueTypeId);
+  return (
+    store[exactKey] ??
+    store[wildcardKey] ??
+    { projectKey: resolvedProjectKey, issueTypeId, hiddenFieldIds: [] }
+  );
 }
 
 /** Clears all per-issue-type hidden-field prefs. Leaves Settings untouched. */
 export async function clearPrefs(): Promise<void> {
-  await chrome.storage.sync.remove(PREFS_STORAGE_KEY);
+  await chrome.storage.sync.remove([PREFS_STORAGE_KEY, PREFS_STORAGE_KEY_V1]);
+}
+
+/** Deletes the pref for a single project+issueType combo. */
+export async function clearPref(projectKey: string | null, issueTypeId: string): Promise<void> {
+  const resolvedProjectKey = projectKey ?? DEFAULT_PROJECT_KEY;
+  const store = await loadPrefs();
+  const key = makePrefKey(resolvedProjectKey, issueTypeId);
+  if (!(key in store)) return;
+  const updatedStore = { ...store };
+  delete updatedStore[key];
+  await savePrefs(updatedStore);
 }
 
 /**
@@ -99,6 +167,7 @@ export function onSettingsChanged(cb: (settings: Settings) => void): () => void 
 }
 
 async function doToggleField(
+  projectKey: string | null,
   issueTypeId: string,
   fieldId: string,
   hidden: boolean
@@ -110,10 +179,16 @@ async function doToggleField(
     return loadPrefs();
   }
 
+  const resolvedProjectKey = projectKey ?? DEFAULT_PROJECT_KEY;
   const store = await loadPrefs();
-  const existing = store[issueTypeId] ?? { issueTypeId, hiddenFieldIds: [] };
 
-  const hiddenSet = new Set(existing.hiddenFieldIds);
+  // Seed the new bucket from fallback resolution (exact → wildcard → empty)
+  // so the first toggle in a project inherits the wildcard/default set, then diverges.
+  const exactKey = makePrefKey(resolvedProjectKey, issueTypeId);
+  const wildcardKey = makePrefKey(DEFAULT_PROJECT_KEY, issueTypeId);
+  const seed = store[exactKey] ?? store[wildcardKey] ?? { projectKey: resolvedProjectKey, issueTypeId, hiddenFieldIds: [] };
+
+  const hiddenSet = new Set(seed.hiddenFieldIds);
   if (hidden) {
     hiddenSet.add(fieldId);
   } else {
@@ -121,13 +196,14 @@ async function doToggleField(
   }
 
   const updatedPref: Pref = {
+    projectKey: resolvedProjectKey,
     issueTypeId,
     hiddenFieldIds: [...hiddenSet],
   };
 
   const updatedStore: PrefsStore = {
     ...store,
-    [issueTypeId]: updatedPref,
+    [exactKey]: updatedPref,
   };
 
   await savePrefs(updatedStore);
@@ -176,12 +252,13 @@ export async function waitForWritesToSettle(): Promise<void> {
 }
 
 export function toggleField(
+  projectKey: string | null,
   issueTypeId: string,
   fieldId: string,
   hidden: boolean
 ): Promise<PrefsStore> {
   issuedWriteSeq += 1;
-  const result = writeQueue.then(() => doToggleField(issueTypeId, fieldId, hidden));
+  const result = writeQueue.then(() => doToggleField(projectKey, issueTypeId, fieldId, hidden));
   writeQueue = result.catch(() => undefined);
   // void: result's own rejection is already handled by writeQueue's .catch
   // above; this .finally() only exists to re-converge committedWriteSeq on

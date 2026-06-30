@@ -22,9 +22,10 @@ import { debounce } from './dom-observer';
 export interface IssueContext {
   issueTypeId: string;
   issueKey: string | null;
+  projectKey: string | null;
 }
 
-const UNKNOWN_CONTEXT: IssueContext = { issueTypeId: 'unknown', issueKey: null };
+const UNKNOWN_CONTEXT: IssueContext = { issueTypeId: 'unknown', issueKey: null, projectKey: null };
 
 // Provisional, hardened in Wave 5/7 with real Jira fixtures.
 // Jira's actual data-testid naming isn't confirmed yet, so we try a couple
@@ -37,6 +38,18 @@ const ISSUE_TYPE_SELECTORS = [
 // Provisional, hardened in Wave 5/7 with real Jira fixtures.
 const ISSUE_KEY_PATH_REGEX = /\/browse\/([A-Z][A-Z0-9]*-\d+)/;
 const ISSUE_KEY_SHAPE_REGEX = /^[A-Z][A-Z0-9]*-\d+$/;
+
+// When an issue is opened from a board/backlog (?selectedIssue=…), Jira renders
+// it in a modal "detail panel" while the board cards stay in the DOM behind it.
+// Every card carries its own issue-type badge + field-ish nodes, so scanning
+// `document` would read the wrong issue type and treat cards as fields. Scope
+// everything to this panel instead. Ordered fallback: a Jira markup change
+// degrades to `document` (full-page behaviour) rather than breaking — confirmed
+// live as `issue.views.issue-details.issue-modal.modal-dialog`.
+const ISSUE_DETAIL_PANEL_SELECTORS = [
+  '[data-testid="issue.views.issue-details.issue-modal.modal-dialog"]',
+  '[data-testid*="issue-modal.modal-dialog"]',
+] as const;
 
 /**
  * Slugify an arbitrary label into a stable-ish id: lowercase, non-alnum
@@ -56,12 +69,12 @@ function slugify(label: string): string {
  * the DOM. Returns the slugified label, or null if nothing usable was found.
  * Provisional, hardened in Wave 5/7 with real Jira fixtures.
  */
-function readIssueTypeFromDom(): string | null {
+function readIssueTypeFromDom(root: ParentNode = document): string | null {
   try {
     for (const selector of ISSUE_TYPE_SELECTORS) {
       let els: NodeListOf<Element> | null = null;
       try {
-        els = document.querySelectorAll(selector);
+        els = root.querySelectorAll(selector);
       } catch {
         // Invalid selector in this environment — try the next pattern.
         continue;
@@ -72,6 +85,11 @@ function readIssueTypeFromDom(): string | null {
       // anonymous wrapper with no label, plus the actual labeled badge/button
       // further down). Check every match for this pattern before moving on.
       for (const el of Array.from(els)) {
+        // ponytail: linked-issue cards inside the panel carry their own
+        // `issue-line-card-issue-type` badge — skip them so we read the
+        // panel's OWN type, not a linked issue's, regardless of DOM order.
+        if (el.closest('[data-testid*="issue-line-card"]')) continue;
+
         const label =
           el.getAttribute('aria-label') ??
           el.getAttribute('title') ??
@@ -120,6 +138,43 @@ function readIssueKeyFromUrl(): string | null {
  *     the `selectedIssue` query param (board/backlog preview panels).
  *  3. `{ issueTypeId: 'unknown', issueKey: null }` if nothing matched.
  */
+/**
+ * The DOM scope all field scanning + issue-type detection should read from.
+ *
+ * - Standalone issue page (`/browse/ABC-123`): the whole `document` (today's
+ *   behaviour — there are no competing board cards).
+ * - Board/backlog panel (`?selectedIssue=…`): the issue detail modal, so the
+ *   board cards behind it (each with its own issue-type badge + field-ish
+ *   nodes) are excluded. Returns an empty fragment while the panel hasn't
+ *   rendered yet — better to scan nothing for a frame than to pollute the
+ *   board cards; the next mutation rescan picks the panel up once it appears.
+ * Never throws.
+ */
+export function getIssueRoot(): ParentNode {
+  try {
+    const pathname = window.location?.pathname ?? '';
+    if (ISSUE_KEY_PATH_REGEX.test(pathname)) return document;
+
+    const search = window.location?.search ?? '';
+    if (new URLSearchParams(search).get('selectedIssue')) {
+      for (const sel of ISSUE_DETAIL_PANEL_SELECTORS) {
+        try {
+          const el = document.querySelector(sel);
+          if (el) return el;
+        } catch {
+          // invalid selector in this environment — try the next
+        }
+      }
+      // Panel mode but panel not in the DOM yet: scan nothing, not the board.
+      return document.createDocumentFragment();
+    }
+  } catch {
+    // fall through — scan nothing rather than pollute board cards
+  }
+  // ponytail: non-issue URL (bare board, backlog, …) — return empty root so listFields() scans nothing
+  return document.createDocumentFragment();
+}
+
 export function getIssueType(): IssueContext {
   try {
     // Gate on the URL, not just a DOM badge: issue-type icons also render on
@@ -130,10 +185,12 @@ export function getIssueType(): IssueContext {
       return { ...UNKNOWN_CONTEXT };
     }
 
-    const issueTypeId = readIssueTypeFromDom();
+    const issueTypeId = readIssueTypeFromDom(getIssueRoot());
+    const projectKey = issueKey.replace(/-\d+$/, '');
     return {
       issueTypeId: issueTypeId ?? 'unknown',
       issueKey,
+      projectKey,
     };
   } catch {
     // Belt-and-suspenders: this function must never throw.
@@ -171,7 +228,7 @@ export function isKnownIssueType(issueTypeId: string): boolean {
  */
 export function watchIssueContext(cb: (ctx: IssueContext) => void): () => void {
   let lastHref = '';
-  let lastIssueTypeId: string | null = null;
+  let lastKey: string | null = null;
 
   try {
     lastHref = window.location?.href ?? '';
@@ -193,8 +250,11 @@ export function watchIssueContext(cb: (ctx: IssueContext) => void): () => void {
     lastHref = currentHref;
 
     const ctx = getIssueType();
-    if (ctx.issueTypeId !== lastIssueTypeId) {
-      lastIssueTypeId = ctx.issueTypeId;
+    // Use composite key so CSM-1(Incident) → ITSM-2(Incident) fires the cb
+    // even when issueTypeId is unchanged across projects.
+    const key = `${ctx.projectKey}:${ctx.issueTypeId}`;
+    if (key !== lastKey) {
+      lastKey = key;
       try {
         cb(ctx);
       } catch {

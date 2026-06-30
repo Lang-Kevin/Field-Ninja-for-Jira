@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<!--
+  Board view — issue detail panel is NOT present on load.
+  The modal is injected via setTimeout at 3500ms, past the settle-poll ceiling
+  (10 × 300ms = 3s in content-entry.ts L483-495).
+
+  URL this fixture is served at:
+    /jira-board-late-panel.html?selectedIssue=DEV-119113
+  (no /browse/ in the path, so getIssueRoot() takes the selectedIssue branch
+  and looks for the modal-dialog selector instead of returning document).
+
+  Board cards exist in the DOM from the start so the leak-risk siblings are
+  present — verifies the extension doesn't confuse board-card fields with
+  modal fields after the late mount.
+-->
+<html>
+<body>
+  <!-- Board column: cards present before the modal renders -->
+  <div data-testid="platform-board-kit.ui.column">
+    <div data-testid="issue-line-card.card-container.DEV-1">
+      <span data-testid="issue-line-card-issue-type.issue-type" aria-label="Bug" title="Bug"></span>
+      <div data-testid="issue-field-priority" aria-label="Priority">High</div>
+    </div>
+    <div data-testid="issue-line-card.card-container.DEV-2">
+      <span data-testid="issue-line-card-issue-type.issue-type" aria-label="Task" title="Task"></span>
+      <div data-testid="issue-field-assignee" aria-label="Assignee">Jane</div>
+    </div>
+  </div>
+
+  <!--
+    Modal injected AFTER the settle-poll expires (3500ms > 3000ms ceiling).
+    After the injection no further DOM mutations occur — the MutationObserver
+    path (not the settle poll) is the only mechanism that can mount icons.
+  -->
+  <script>
+    setTimeout(function () {
+      var modal = document.createElement('div');
+      modal.setAttribute('role', 'dialog');
+      modal.setAttribute('data-testid', 'issue.views.issue-details.issue-modal.modal-dialog');
+
+      // Issue-type badge — lets the content script resolve "Story" as the type.
+      var issueTypeBadge = document.createElement('button');
+      issueTypeBadge.setAttribute('data-testid', 'issue-view-foundation.noneditable-issue-type.button');
+      issueTypeBadge.setAttribute('aria-label', 'Story');
+      issueTypeBadge.setAttribute('title', 'Story');
+      modal.appendChild(issueTypeBadge);
+
+      // A field matching FIELD_SELECTOR via data-testid*="field".
+      // Includes a <label> sibling as specified in the test scenario.
+      var fieldRow = document.createElement('div');
+      fieldRow.setAttribute('data-testid', 'issue.issue-view-layout.issue-view-sprint-field.customfield_10020');
+      fieldRow.setAttribute('aria-label', 'Sprint');
+
+      var lbl = document.createElement('label');
+      lbl.textContent = 'Sprint';
+      fieldRow.appendChild(lbl);
+
+      var val = document.createElement('span');
+      val.textContent = 'Sprint 42';
+      fieldRow.appendChild(val);
+
+      modal.appendChild(fieldRow);
+
+      // Single append — one childList mutation on document.body.
+      document.body.appendChild(modal);
+    }, 3500);
+  </script>
+</body>
+</html>

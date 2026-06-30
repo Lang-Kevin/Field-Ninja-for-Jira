@@ -9,6 +9,20 @@
 
 **Current build status: see `docs/PLAN.md`** — a checkbox-tracked wave schedule. A new session should read it first and resume from the first unchecked box.
 
+## Agents & Delegation
+
+**Caveman is mandatory.** The main session works in caveman-compressed format at all times. Every sub-agent runs caveman too — **except `@implementer`, which runs ponytail** (laziest working solution, shortest diff).
+
+**The main agent does not do work a sub-agent can do.** The main session is reserved for architecture decisions, multi-file design, hard bug hypotheses, and trade-off calls. Searching, focused edits, reviews, and verification are delegated — never run Grep-dumps, point-fixes, or test sweeps inline if an agent covers them.
+
+| Agent          | Model  | Primary function |
+| -------------- | ------ | ---------------- |
+| `@explorer`    | —      | Codebase investigation: graphify-first, then Grep/Glob. Returns only relevant `file:line` references — no dumps. |
+| `@implementer` | Sonnet | Focused code change in ≤3 clearly-scoped files (bugfix, small feature, planned wave item). Returns diff summary. |
+| `@reviewer`    | Sonnet | Read-only review of the latest diff vs. spec/hard rules/architecture. Runs after every change, before commit. |
+| `@architect`   | Opus   | Milestone/wave planning, multi-file architecture, cross-layer bug hypotheses. Returns a plan, not code. |
+| `@qa-verifier` | Haiku  | Read-only PASS/FAIL gate after each milestone and before merge/PR: build + lint + tests + acceptance criteria. |
+
 ## Plan Storage
 
 Plans created in plan mode for this project must always be saved inside the project folder, at `.claude/plans/`, never in the global `~/.claude/plans/` directory.
@@ -22,6 +36,17 @@ Plans created in plan mode for this project must always be saved inside the proj
 ## Testing
 
 Always use the cheapest model when working with Playwright in combination with `/caveman`.
+
+## Browser Automation (agent-browser)
+
+Authenticated Jira session is saved at `C:\Users\Kiwi PC\.agent-browser\states\jira-auth.json`.
+
+**Usage:**
+```bash
+agent-browser --state "C:\Users\Kiwi PC\.agent-browser\states\jira-auth.json" --session jira open "<jira-url>"
+```
+
+**Re-authenticate** (when cookies expire): run `agent-browser --headed --session jira open "https://lynqtech.atlassian.net"`, log in manually, then `agent-browser --session jira state save "C:\Users\Kiwi PC\.agent-browser\states\jira-auth.json"`.
 
 ---
 

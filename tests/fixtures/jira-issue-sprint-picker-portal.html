@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Jira Issue (Sprint Picker Portal) — ABC-304</title>
+  <style>
+    body { font-family: sans-serif; margin: 16px; }
+    .field-row { margin-bottom: 10px; padding: 6px; border: 1px solid #ddd; }
+    #sprint-portal-options {
+      position: absolute;
+      top: 200px;
+      left: 100px;
+      background: white;
+      border: 1px solid #ccc;
+      padding: 8px;
+      z-index: 1000;
+    }
+  </style>
+</head>
+<body>
+  <span data-testid="issuetype-icon" aria-label="Story" title="Story"></span>
+  <h1>ABC-304: Sprint picker portal fixture (Story)</h1>
+
+  <div id="new-view-fields">
+    <div class="field-row">
+      <div data-testid="issue.fields.summary-field" aria-label="Summary">Sprint picker portal fixture issue</div>
+    </div>
+
+    <!--
+      React portal pattern: clicking the sprint field opens a small inline search
+      input in place, but the actual dropdown menu/options is rendered via React
+      portal as a sibling of the entire form (child of document.body), not nested
+      inside the field's row.
+
+      The portal div itself has a data-testid that substring-matches FIELD_SELECTOR's
+      "field" check, so field-registry.ts will treat it as a separate hideable field
+      with its own containerNode — distinct from the focused input's row.
+
+      The focused input is NOT inside the portal container, so the old fix
+      (checking field.containerNode.contains(document.activeElement)) would fail.
+      But the new global userIsEditing check (detecting activeElement is INPUT/TEXTAREA)
+      prevents mounting the toggle button inside either container.
+    -->
+    <div class="field-row" id="sprint-row">
+      <div data-testid="issue.fields.sprint-field" id="sprint-read-view" aria-label="Sprint">Sprint 12</div>
+    </div>
+  </div>
+
+  <script>
+    const row = document.getElementById('sprint-row');
+
+    function openEditView() {
+      const readView = document.getElementById('sprint-read-view');
+      if (!readView) return;
+
+      // Swap read-view for a minimal inline search input wrapper.
+      const editView = document.createElement('div');
+      editView.setAttribute('data-testid', 'issue.fields.sprint-field');
+      editView.id = 'sprint-edit-view';
+      editView.innerHTML = '<input type="text" id="sprint-search" placeholder="Search sprints..." />';
+      readView.replaceWith(editView);
+
+      const input = document.getElementById('sprint-search');
+      input.focus();
+
+      // Create the portal div (appended to document.body, NOT inside the field row).
+      // Its data-testid includes "field", so FIELD_SELECTOR matches it as a field.
+      const portal = document.createElement('div');
+      portal.id = 'sprint-portal-options';
+      portal.setAttribute('data-testid', 'issue.fields.sprint-field--options');
+      portal.innerHTML = '<ul id="sprint-options"><li>Sprint 12</li><li>Sprint 13</li></ul>';
+      document.body.appendChild(portal);
+
+      // Close the portal if a jfv-field-toggle is inserted into it
+      // (reproduces Jira's real "close on unexpected mutation" behavior).
+      const closeObserver = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+          for (const node of Array.from(m.addedNodes)) {
+            if (node instanceof Element && node.classList.contains('jfv-field-toggle')) {
+              closeObserver.disconnect();
+              portal.remove();
+              // Restore read view.
+              const restored = document.createElement('div');
+              restored.setAttribute('data-testid', 'issue.fields.sprint-field');
+              restored.id = 'sprint-read-view';
+              restored.textContent = 'Sprint 12';
+              editView.replaceWith(restored);
+              return;
+            }
+          }
+        }
+      });
+      closeObserver.observe(portal, { childList: true, subtree: true });
+
+      input.addEventListener('input', () => {
+        const options = document.getElementById('sprint-options');
+        if (options) {
+          options.innerHTML = '<li>Sprint ' + (input.value || '12/13') + '</li>';
+        }
+      });
+    }
+
+    row.addEventListener('click', (e) => {
+      if (document.getElementById('sprint-read-view')) {
+        openEditView();
+      }
+    });
+  </script>
+</body>
+</html>

@@ -12,6 +12,7 @@
 import { getIssueType, getIssueRoot, watchIssueContext } from '../lib/jira-context-resolver';
 import { listFields, listPanels, listTabs, listSections } from '../lib/field-registry';
 import { getPref, onPrefsChanged, getWriteSeqStatus, waitForWritesToSettle, loadSettings, onSettingsChanged } from '../lib/storage-service';
+import { makePrefKey, DEFAULT_PROJECT_KEY } from '../types/prefs';
 import { computeVisibilityDiff, computeHiddenSelectors, computeHiddenTabs, computeHiddenSections, syncHiddenStylesheet, writeHiddenAttr } from '../lib/visibility-engine';
 import { mountFieldToggle } from '../lib/ui-overlay';
 import { observeRoot, markOwnMutation } from '../lib/dom-observer';
@@ -36,6 +37,8 @@ function listAll(root?: ParentNode): FieldMeta[] {
 
 /** Current issue type id, updated by watchIssueContext's callback. */
 let currentIssueTypeId: string = 'unknown';
+/** Current project key (e.g. 'CSM'), null when no issue is active. Updated by watchIssueContext. */
+let currentProjectKey: string | null = null;
 
 /**
  * Persists which tab data-testid values are known to be hidden (all their
@@ -131,6 +134,7 @@ function syncHiddenFieldIdsCache(fieldId: string, hidden: boolean): void {
 async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<void> {
   try {
     const issueTypeId = currentIssueTypeId;
+    const projectKey = currentProjectKey;
     const hiddenSet = currentHiddenFieldIds;
 
     // Tearing down/remounting toggle buttons and the panel mutates the same
@@ -171,7 +175,7 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
     // their panels are lazy-removed by Jira so we can't re-evaluate them.
     if (fields.length > 0 || tabs.length > 0) {
       // Update map for currently visible panels, save so reload can re-derive
-      const tabKey = `jfv-tab-fields:v1:${issueTypeId}`;
+      const tabKey = `jfv-tab-fields:v1:${projectKey ?? DEFAULT_PROJECT_KEY}:${issueTypeId}`;
       let mapUpdated = false;
       for (const tab of tabs) {
         const testId = tab.tabNode.getAttribute('data-testid');
@@ -183,7 +187,7 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
 
       // Persist field-id→label cache so hidden fields lazy-removed by Jira
       // (in collapsed sections / inactive tabs) can still be named in the popup.
-      const labelKey = `jfv-field-labels:v1:${issueTypeId}`;
+      const labelKey = `jfv-field-labels:v1:${projectKey ?? DEFAULT_PROJECT_KEY}:${issueTypeId}`;
       let labelUpdated = false;
       for (const field of fields) {
         if (field.label && labelById[field.id] !== field.label) {
@@ -221,7 +225,7 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
     // Same persistence pattern for collapsible sections: fields are lazy-rendered
     // only when expanded, so we can't evaluate "all hidden" while collapsed.
     if (fields.length > 0 || sections.length > 0) {
-      const sectionKey = `jfv-section-fields:v1:${issueTypeId}`;
+      const sectionKey = `jfv-section-fields:v1:${projectKey ?? DEFAULT_PROJECT_KEY}:${issueTypeId}`;
       let sectionMapUpdated = false;
       // Compute live field membership once; reused for both map update and override.
       const liveSectionFields = new Map<string, FieldMeta[]>();
@@ -345,7 +349,7 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
         for (const field of fields) {
           fieldToggleMap.set(
             field.containerNode,
-            mountFieldToggle(field, issueTypeId, hiddenSet.has(field.id), syncHiddenFieldIdsCache)
+            mountFieldToggle(field, projectKey, issueTypeId, hiddenSet.has(field.id), syncHiddenFieldIdsCache)
           );
         }
       } else {
@@ -386,7 +390,7 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
           if (!fieldToggleMap.has(field.containerNode) && !userIsEditing && onIssuePage) {
             fieldToggleMap.set(
               field.containerNode,
-              mountFieldToggle(field, issueTypeId, hiddenSet.has(field.id), syncHiddenFieldIdsCache)
+              mountFieldToggle(field, projectKey, issueTypeId, hiddenSet.has(field.id), syncHiddenFieldIdsCache)
             );
           }
         }
@@ -405,12 +409,12 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
  * rescan (see module doc below for the race this avoids).
  */
 async function loadHiddenFieldIdsAndRender(): Promise<void> {
-  const tabKey = `jfv-tab-fields:v1:${currentIssueTypeId}`;
-  const sectionKey = `jfv-section-fields:v1:${currentIssueTypeId}`;
-  const labelKey = `jfv-field-labels:v1:${currentIssueTypeId}`;
+  const tabKey = `jfv-tab-fields:v1:${currentProjectKey ?? DEFAULT_PROJECT_KEY}:${currentIssueTypeId}`;
+  const sectionKey = `jfv-section-fields:v1:${currentProjectKey ?? DEFAULT_PROJECT_KEY}:${currentIssueTypeId}`;
+  const labelKey = `jfv-field-labels:v1:${currentProjectKey ?? DEFAULT_PROJECT_KEY}:${currentIssueTypeId}`;
   try {
     const [pref, local] = await Promise.all([
-      getPref(currentIssueTypeId),
+      getPref(currentProjectKey, currentIssueTypeId),
       chrome.storage.local.get([tabKey, sectionKey, labelKey]),
     ]);
     currentHiddenFieldIds = new Set(pref.hiddenFieldIds);
@@ -442,6 +446,7 @@ async function loadHiddenFieldIdsAndRender(): Promise<void> {
 function init(): void {
   const ctx = getIssueType();
   currentIssueTypeId = ctx.issueTypeId;
+  currentProjectKey = ctx.projectKey;
   onIssuePage = ctx.issueKey !== null;
   if (onIssuePage) {
     void loadHiddenFieldIdsAndRender();
@@ -498,6 +503,7 @@ function init(): void {
 
   watchIssueContext((ctx) => {
     currentIssueTypeId = ctx.issueTypeId;
+    currentProjectKey = ctx.projectKey;
     onIssuePage = ctx.issueKey !== null;
     if (onIssuePage) {
       void loadHiddenFieldIdsAndRender();
@@ -527,7 +533,7 @@ function init(): void {
             }
           }
         }
-        sendResponse({ onIssuePage, issueTypeId: currentIssueTypeId, fields });
+        sendResponse({ onIssuePage, issueTypeId: currentIssueTypeId, projectKey: currentProjectKey, fields });
       }
     }
   );
@@ -578,7 +584,7 @@ function init(): void {
       return;
     }
 
-    const pref = store[currentIssueTypeId];
+    const pref = store[makePrefKey(currentProjectKey ?? DEFAULT_PROJECT_KEY, currentIssueTypeId)];
     currentHiddenFieldIds = new Set(pref?.hiddenFieldIds ?? []);
     const fresh = onIssuePage ? listAll(getIssueRoot()) : [];
     void render(fresh);

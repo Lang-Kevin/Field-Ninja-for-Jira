@@ -22,9 +22,10 @@ import { debounce } from './dom-observer';
 export interface IssueContext {
   issueTypeId: string;
   issueKey: string | null;
+  projectKey: string | null;
 }
 
-const UNKNOWN_CONTEXT: IssueContext = { issueTypeId: 'unknown', issueKey: null };
+const UNKNOWN_CONTEXT: IssueContext = { issueTypeId: 'unknown', issueKey: null, projectKey: null };
 
 // Provisional, hardened in Wave 5/7 with real Jira fixtures.
 // Jira's actual data-testid naming isn't confirmed yet, so we try a couple
@@ -185,9 +186,11 @@ export function getIssueType(): IssueContext {
     }
 
     const issueTypeId = readIssueTypeFromDom(getIssueRoot());
+    const projectKey = issueKey.replace(/-\d+$/, '');
     return {
       issueTypeId: issueTypeId ?? 'unknown',
       issueKey,
+      projectKey,
     };
   } catch {
     // Belt-and-suspenders: this function must never throw.
@@ -225,7 +228,7 @@ export function isKnownIssueType(issueTypeId: string): boolean {
  */
 export function watchIssueContext(cb: (ctx: IssueContext) => void): () => void {
   let lastHref = '';
-  let lastIssueTypeId: string | null = null;
+  let lastKey: string | null = null;
 
   try {
     lastHref = window.location?.href ?? '';
@@ -247,8 +250,11 @@ export function watchIssueContext(cb: (ctx: IssueContext) => void): () => void {
     lastHref = currentHref;
 
     const ctx = getIssueType();
-    if (ctx.issueTypeId !== lastIssueTypeId) {
-      lastIssueTypeId = ctx.issueTypeId;
+    // Use composite key so CSM-1(Incident) → ITSM-2(Incident) fires the cb
+    // even when issueTypeId is unchanged across projects.
+    const key = `${ctx.projectKey}:${ctx.issueTypeId}`;
+    if (key !== lastKey) {
+      lastKey = key;
       try {
         cb(ctx);
       } catch {

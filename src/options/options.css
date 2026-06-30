@@ -25,6 +25,19 @@ h1 {
   max-width: 480px;
 }
 
+.jfv-project-group {
+  margin-bottom: 16px;
+}
+
+.jfv-project-heading {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #5e6c84;
+  margin: 0 0 6px;
+}
+
 .jfv-pref-row {
   display: flex;
   align-items: center;

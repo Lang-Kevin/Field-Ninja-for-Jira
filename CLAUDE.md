@@ -37,16 +37,13 @@ Plans created in plan mode for this project must always be saved inside the proj
 
 Always use the cheapest model when working with Playwright in combination with `/caveman`.
 
-## Browser Automation (agent-browser)
+## Browser Testing (Claude for Chrome)
 
-Authenticated Jira session is saved at `C:\Users\Kiwi PC\.agent-browser\states\jira-auth.json`.
+Test the extension with **Claude for Chrome**, driven in the user's real Chrome — it has the unpacked `dist/` extension loaded and a live authenticated Jira session, so it sees the actual extension runtime (toggle icons, content-script console). This is the only way to observe the built extension in situ.
 
-**Usage:**
-```bash
-agent-browser --state "C:\Users\Kiwi PC\.agent-browser\states\jira-auth.json" --session jira open "<jira-url>"
-```
+`agent-browser` does NOT work for this project: it launches a clean Chromium without the extension, so it can only inspect Jira's DOM, never the extension's own behaviour. Do not use it to verify extension UI.
 
-**Re-authenticate** (when cookies expire): run `agent-browser --headed --session jira open "https://lynqtech.atlassian.net"`, log in manually, then `agent-browser --session jira state save "C:\Users\Kiwi PC\.agent-browser\states\jira-auth.json"`.
+The main session cannot drive Claude for Chrome directly — hand the user a precise, self-contained test script (URL + exact checks: `.jfv-field-toggle` count, `window.__jfvLoaded`, any `[jfv]` console errors) and have the results relayed back.
 
 ---
 

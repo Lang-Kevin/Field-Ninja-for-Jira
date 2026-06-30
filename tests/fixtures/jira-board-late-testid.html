@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<!--
+  Board view — issue detail modal is appended at 3500ms with the WRONG
+  data-testid ("some-other-modal"), then the CORRECT testid is set via
+  setAttribute at 4200ms without any further DOM mutation.
+
+  This reproduces the race where:
+    1. childList mutation (modal appended at 3500ms) fires the observer, but
+       getIssueRoot() finds no matching selector → returns empty fragment → 0 fields.
+    2. The setAttribute at 4200ms changes data-testid, but the observer's
+       attributeFilter: ['style','class'] ignores it → observer never fires again.
+    3. The settle poll has already stopped at the 3s cap → icons never mount.
+
+  URL this fixture is served at:
+    /jira-board-late-testid.html?selectedIssue=DEV-119113
+-->
+<html>
+<body>
+  <!-- Board column: cards present before the modal renders -->
+  <div data-testid="platform-board-kit.ui.column">
+    <div data-testid="issue-line-card.card-container.DEV-1">
+      <span data-testid="issue-line-card-issue-type.issue-type" aria-label="Bug" title="Bug"></span>
+      <div data-testid="issue-field-priority" aria-label="Priority">High</div>
+    </div>
+    <div data-testid="issue-line-card.card-container.DEV-2">
+      <span data-testid="issue-line-card-issue-type.issue-type" aria-label="Task" title="Task"></span>
+      <div data-testid="issue-field-assignee" aria-label="Assignee">Jane</div>
+    </div>
+  </div>
+
+  <script>
+    var modal;
+
+    // Step 1: append modal with WRONG testid at 3500ms.
+    // This fires a childList mutation — the observer sees it, but
+    // getIssueRoot() finds no selector match and returns an empty
+    // DocumentFragment, so listAll returns [] and render does nothing.
+    setTimeout(function () {
+      modal = document.createElement('div');
+      modal.setAttribute('role', 'dialog');
+      modal.setAttribute('data-testid', 'some-other-modal');
+
+      // Issue-type badge
+      var issueTypeBadge = document.createElement('button');
+      issueTypeBadge.setAttribute('data-testid', 'issue-view-foundation.noneditable-issue-type.button');
+      issueTypeBadge.setAttribute('aria-label', 'Story');
+      issueTypeBadge.setAttribute('title', 'Story');
+      modal.appendChild(issueTypeBadge);
+
+      // Field matching FIELD_SELECTOR via data-testid*="field"
+      var fieldRow = document.createElement('div');
+      fieldRow.setAttribute('data-testid', 'issue.issue-view-layout.issue-view-sprint-field.customfield_10020');
+      fieldRow.setAttribute('aria-label', 'Sprint');
+
+      var lbl = document.createElement('label');
+      lbl.textContent = 'Sprint';
+      fieldRow.appendChild(lbl);
+
+      var val = document.createElement('span');
+      val.textContent = 'Sprint 42';
+      fieldRow.appendChild(val);
+
+      modal.appendChild(fieldRow);
+
+      // Single childList mutation — observer fires but getIssueRoot() misses.
+      document.body.appendChild(modal);
+    }, 3500);
+
+    // Step 2: set the CORRECT testid at 4200ms via setAttribute only.
+    // No further DOM mutation occurs after this call.
+    // The observer's attributeFilter: ['style','class'] ignores data-testid
+    // mutations, so the observer does NOT fire — icons never mount with the
+    // current code (settle poll already stopped at 3s cap).
+    setTimeout(function () {
+      if (modal) {
+        modal.setAttribute('data-testid', 'issue.views.issue-details.issue-modal.modal-dialog');
+      }
+    }, 4200);
+  </script>
+</body>
+</html>

@@ -484,7 +484,14 @@ function init(): void {
       clearInterval(settleTimer);
       return;
     }
-    if (!onIssuePage || settleAttempts >= 10) {
+    // ponytail: keep polling past the old 3s cap while we're on an issue/board
+    // panel URL but no fields resolved yet. Jira can attach the modal node
+    // first and set its identifying data-testid in a LATER attribute mutation
+    // the observer's ['style','class'] filter never sees; if the board then
+    // goes idle nothing re-scans and icons never mount. Bounded ~30s ceiling —
+    // raise the cap if very slow boards still miss. Harmless on field-less
+    // pages (idempotent cheap querySelectorAll, self-stops at the cap).
+    if (!onIssuePage || settleAttempts >= 100) {
       clearInterval(settleTimer);
     }
   }, 300);

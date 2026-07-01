@@ -17,7 +17,6 @@
  * element degrades to 'unknown' rather than throwing.
  */
 
-import { debounce } from './dom-observer';
 
 export interface IssueContext {
   issueTypeId: string;
@@ -229,6 +228,15 @@ export function isKnownIssueType(issueTypeId: string): boolean {
 export function watchIssueContext(cb: (ctx: IssueContext) => void): () => void {
   let lastHref = '';
   let lastKey: string | null = null;
+  // True while the URL refers to an issue but the modal/page DOM hasn't
+  // grown its identifying data-testid yet (e.g. board card click: pushState
+  // fires and the modal node mounts before the testid attribute lands in a
+  // later async mutation). Keeps re-polling past the href-unchanged guard so
+  // we don't get stuck dispatching 'unknown' forever.
+  let pendingResolve = false;
+  // Bounds the pendingResolve re-poll (~30s at 300ms ticks), mirroring the
+  // init() settle-poll cap, in case a URL genuinely never resolves a type.
+  let pendingAttempts = 0;
 
   try {
     lastHref = window.location?.href ?? '';
@@ -244,12 +252,25 @@ export function watchIssueContext(cb: (ctx: IssueContext) => void): () => void {
       currentHref = '';
     }
 
-    if (currentHref === lastHref) {
+    const hrefChanged = currentHref !== lastHref;
+    if (!hrefChanged && !pendingResolve) {
       return;
+    }
+    if (hrefChanged) {
+      pendingAttempts = 0; // fresh navigation: reset the bounded re-poll
     }
     lastHref = currentHref;
 
     const ctx = getIssueType();
+
+    const urlHasIssue = readIssueKeyFromUrl() !== null;
+    if (urlHasIssue && ctx.issueTypeId === 'unknown' && pendingAttempts < 100) {
+      pendingResolve = true;
+      pendingAttempts += 1;
+    } else {
+      pendingResolve = false;
+    }
+
     // Use composite key so CSM-1(Incident) → ITSM-2(Incident) fires the cb
     // even when issueTypeId is unchanged across projects.
     const key = `${ctx.projectKey}:${ctx.issueTypeId}`;
@@ -263,12 +284,16 @@ export function watchIssueContext(cb: (ctx: IssueContext) => void): () => void {
     }
   };
 
-  const debouncedCheck = debounce(checkForChange, 300);
-
+  // ponytail: a fixed-rate poll must NOT be debounced — with wait==period the
+  // trailing-edge timeout gets cleared by the next tick before it can fire, so
+  // checkForChange would run only on lucky timer jitter (root cause of toggles
+  // intermittently never mounting on SPA nav). checkForChange is cheap and
+  // early-returns when nothing changed, so call it directly.
+  //
   // Polling covers both popstate and pushState-driven navigations (the
   // latter fires no native event), so a separate popstate listener would be
   // redundant — the next poll tick always re-checks location.href anyway.
-  const intervalId = setInterval(debouncedCheck, 300);
+  const intervalId = setInterval(checkForChange, 300);
 
   return () => {
     clearInterval(intervalId);

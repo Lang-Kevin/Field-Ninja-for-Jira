@@ -88,6 +88,47 @@ describe('watchIssueContext composite change-detection (S3)', () => {
     const lastCtx = cb.mock.calls[cb.mock.calls.length - 1][0];
     expect(lastCtx.projectKey).toBe('ITSM');
   }, 5000);
+
+  it(
+    'keeps re-resolving and fires the real issueTypeId once the modal data-testid lands AFTER the pushState, with no further href change (regression guard for the late-testid race)',
+    async () => {
+      // Bare board URL: no selectedIssue, no issue open.
+      setLocation('/jira/software/c/projects/DEV/boards/2040', '?quickFilters=1');
+      const cb = vi.fn();
+      const stop = watchIssueContext(cb);
+
+      // No href change yet and no issue open — watchIssueContext's
+      // unchanged-href guard means it never even calls the callback here.
+      await new Promise<void>((r) => setTimeout(r, 800));
+      expect(cb).not.toHaveBeenCalled();
+
+      // Simulate the pushState that opens the issue panel: URL gains
+      // ?selectedIssue=, but the modal's identifying data-testid hasn't
+      // landed yet (mirrors real Jira: the modal node mounts before the
+      // testid attribute is set in a later async mutation).
+      setLocation('/jira/software/c/projects/DEV/boards/2040', '?selectedIssue=DEV-119113');
+      const modal = document.createElement('div');
+      modal.setAttribute('data-testid', 'some-other-modal');
+      modal.innerHTML =
+        '<button data-testid="issue-view-foundation.noneditable-issue-type.button" aria-label="Story" title="Story"></button>';
+      document.body.appendChild(modal);
+
+      await new Promise<void>((r) => setTimeout(r, 1500));
+      const pending = cb.mock.calls[cb.mock.calls.length - 1]?.[0];
+      expect(pending?.issueTypeId).toBe('unknown');
+
+      // The testid lands later — no further location change at all.
+      modal.setAttribute('data-testid', 'issue.views.issue-details.issue-modal.modal-dialog');
+
+      await new Promise<void>((r) => setTimeout(r, 1500));
+      stop();
+
+      const resolved = cb.mock.calls[cb.mock.calls.length - 1]?.[0];
+      expect(resolved?.issueTypeId).toBe('story');
+      expect(resolved?.issueKey).toBe('DEV-119113');
+    },
+    8000,
+  );
 });
 
 describe('board detail-panel scoping', () => {

@@ -12,7 +12,7 @@
 import { getIssueType, getIssueRoot, watchIssueContext } from '../lib/jira-context-resolver';
 import { listFields, listPanels, listTabs, listSections } from '../lib/field-registry';
 import { getPref, onPrefsChanged, getWriteSeqStatus, waitForWritesToSettle, loadSettings, onSettingsChanged } from '../lib/storage-service';
-import { makePrefKey, DEFAULT_PROJECT_KEY } from '../types/prefs';
+import { makePrefKey, fieldLabelKey, DEFAULT_PROJECT_KEY } from '../types/prefs';
 import { computeVisibilityDiff, computeHiddenSelectors, computeHiddenTabs, computeHiddenSections, syncHiddenStylesheet, writeHiddenAttr } from '../lib/visibility-engine';
 import { mountFieldToggle } from '../lib/ui-overlay';
 import { observeRoot, markOwnMutation } from '../lib/dom-observer';
@@ -187,7 +187,7 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
 
       // Persist field-id→label cache so hidden fields lazy-removed by Jira
       // (in collapsed sections / inactive tabs) can still be named in the popup.
-      const labelKey = `jfv-field-labels:v1:${projectKey ?? DEFAULT_PROJECT_KEY}:${issueTypeId}`;
+      const labelKey = fieldLabelKey(projectKey ?? DEFAULT_PROJECT_KEY, issueTypeId);
       let labelUpdated = false;
       for (const field of fields) {
         if (field.label && labelById[field.id] !== field.label) {
@@ -411,7 +411,7 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
 async function loadHiddenFieldIdsAndRender(): Promise<void> {
   const tabKey = `jfv-tab-fields:v1:${currentProjectKey ?? DEFAULT_PROJECT_KEY}:${currentIssueTypeId}`;
   const sectionKey = `jfv-section-fields:v1:${currentProjectKey ?? DEFAULT_PROJECT_KEY}:${currentIssueTypeId}`;
-  const labelKey = `jfv-field-labels:v1:${currentProjectKey ?? DEFAULT_PROJECT_KEY}:${currentIssueTypeId}`;
+  const labelKey = fieldLabelKey(currentProjectKey ?? DEFAULT_PROJECT_KEY, currentIssueTypeId);
   try {
     const [pref, local] = await Promise.all([
       getPref(currentProjectKey, currentIssueTypeId),

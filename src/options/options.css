@@ -17,6 +17,12 @@ h1 {
   margin: 0 0 16px;
 }
 
+.jfv-subtitle {
+  font-size: 13px;
+  color: #5e6c84;
+  margin: -12px 0 16px;
+}
+
 #prefs-list {
   display: flex;
   flex-direction: column;
@@ -78,4 +84,34 @@ h1 {
 
 #clear-all-btn:hover {
   background-color: #ffbdad;
+}
+
+.jfv-field-sub-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 14px 6px 28px;
+  margin-top: -4px;
+  color: #5e6c84;
+}
+
+.jfv-field-sub-label {
+  font-size: 13px;
+  word-break: break-word;
+}
+
+.jfv-unhide-btn {
+  font-size: 12px;
+  line-height: 1;
+  padding: 3px 8px;
+  border: 1px solid #dfe1e6;
+  border-radius: 3px;
+  background-color: #fafbfc;
+  color: #172b4d;
+  cursor: pointer;
+}
+
+.jfv-unhide-btn:hover {
+  background-color: #ebecf0;
 }

@@ -6,6 +6,7 @@ import {
   DEFAULT_SETTINGS,
   DEFAULT_PROJECT_KEY,
   makePrefKey,
+  fieldLabelKey,
 } from '../types/prefs';
 import { isKnownIssueType } from './jira-context-resolver';
 
@@ -248,6 +249,23 @@ export function getWriteSeqStatus(): { issued: number; committed: number } {
 export async function waitForWritesToSettle(): Promise<void> {
   while (issuedWriteSeq !== committedWriteSeq) {
     await writeQueue;
+  }
+}
+
+/**
+ * Reads the opportunistic fieldId→label cache for one combo. This cache
+ * lives in chrome.storage.local (not .sync, where the rest of this module's
+ * prefs live) — it's written by content-entry.ts as a best-effort lookup aid,
+ * never authoritative. Best-effort; missing → {}.
+ */
+export async function loadFieldLabels(projectKey: string, issueTypeId: string):
+  Promise<Record<string, string>> {
+  const key = fieldLabelKey(projectKey, issueTypeId);
+  try {
+    const res = await chrome.storage.local.get(key);
+    return (res[key] as Record<string, string>) ?? {};
+  } catch {
+    return {};
   }
 }
 

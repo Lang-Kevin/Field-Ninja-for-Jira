@@ -14,6 +14,11 @@ export function makePrefKey(projectKey: string, issueTypeId: string): string {
   return `${projectKey}:${issueTypeId}`;
 }
 
+/** Storage-local key holding fieldId→label for a project+issueType combo. */
+export function fieldLabelKey(projectKey: string, issueTypeId: string): string {
+  return `jfv-field-labels:v1:${projectKey}:${issueTypeId}`;
+}
+
 export const PREFS_STORAGE_KEY_V1 = 'jiraFieldVisibility:v1';
 export const PREFS_STORAGE_KEY = 'jiraFieldVisibility:v2';
 

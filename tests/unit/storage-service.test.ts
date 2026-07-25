@@ -45,8 +45,9 @@ import {
   clearPref,
   clearPrefs,
   migrateIfNeeded,
+  loadFieldLabels,
 } from '../../src/lib/storage-service';
-import { PREFS_STORAGE_KEY, PREFS_STORAGE_KEY_V1, makePrefKey } from '../../src/types/prefs';
+import { PREFS_STORAGE_KEY, PREFS_STORAGE_KEY_V1, makePrefKey, fieldLabelKey } from '../../src/types/prefs';
 
 describe('toggleField', () => {
   it('adds fieldId to a fresh issueTypeId hiddenFieldIds when hidden: true', async () => {
@@ -315,6 +316,37 @@ describe('clearPref', () => {
 
     const store = await loadPrefs();
     expect(store[makePrefKey('*', 'TYPE_A')]).toBeUndefined();
+  });
+});
+
+describe('loadFieldLabels', () => {
+  let mockLocalStorage: ReturnType<typeof createMockChromeStorage>;
+
+  beforeEach(() => {
+    mockLocalStorage = createMockChromeStorage();
+    (globalThis as any).chrome.storage.local = mockLocalStorage;
+  });
+
+  it('returns the stored label map when the key exists', async () => {
+    const key = fieldLabelKey('CSM', 'TYPE_A');
+    await mockLocalStorage.set({ [key]: { field1: 'Summary' } });
+
+    const labels = await loadFieldLabels('CSM', 'TYPE_A');
+    expect(labels).toEqual({ field1: 'Summary' });
+  });
+
+  it('returns {} when the key is missing', async () => {
+    const labels = await loadFieldLabels('CSM', 'TYPE_A');
+    expect(labels).toEqual({});
+  });
+
+  it('returns {} when chrome.storage.local.get throws (best-effort)', async () => {
+    mockLocalStorage.get = vi.fn<[key: string | string[]], Promise<Record<string, unknown>>>(() => {
+      throw new Error('storage unavailable');
+    });
+
+    const labels = await loadFieldLabels('CSM', 'TYPE_A');
+    expect(labels).toEqual({});
   });
 });
 

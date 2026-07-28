@@ -100,3 +100,43 @@ h1 {
 .jfv-action-button:disabled:hover {
   background-color: #fff;
 }
+
+.jfv-action-button:focus-visible {
+  outline: 2px solid #4c9aff;
+  outline-offset: 1px;
+}
+
+.jfv-primary {
+  border-color: #0052cc;
+  background: #0052cc;
+  color: #fff;
+}
+
+.jfv-primary:hover {
+  background-color: #0065ff;
+}
+
+.jfv-scope-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px 8px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid #dfe1e6;
+}
+
+.jfv-scope-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #6b778c;
+}
+
+.jfv-scope-bar .jfv-action-button {
+  flex: 0 0 auto;
+}
+
+.jfv-hidden {
+  display: none;
+}

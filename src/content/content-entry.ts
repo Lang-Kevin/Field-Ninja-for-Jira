@@ -10,7 +10,7 @@
  */
 
 import { getIssueType, getIssueRoot, watchIssueContext } from '../lib/jira-context-resolver';
-import { listFields, listPanels, listTabs, listSections } from '../lib/field-registry';
+import { listFields, listPanels, listTabs, listSections, listUndetectedCandidates } from '../lib/field-registry';
 import { getPref, onPrefsChanged, getWriteSeqStatus, waitForWritesToSettle, loadSettings, onSettingsChanged } from '../lib/storage-service';
 import { makePrefKey, fieldLabelKey, DEFAULT_PROJECT_KEY } from '../types/prefs';
 import { computeVisibilityDiff, computeHiddenSelectors, computeHiddenTabs, computeHiddenSections, syncHiddenStylesheet, writeHiddenAttr } from '../lib/visibility-engine';
@@ -165,6 +165,16 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
     // (the board detail panel when ?selectedIssue is open), so board cards
     // behind the panel aren't scanned.
     const scope = getIssueRoot();
+
+    // ponytail: logged once per render call (not deduped further) — render()
+    // is already debounced/gated by the callers above, so this doesn't spam.
+    if (document.body.classList.contains('jfv-debug')) {
+      const detectedContainers = fields.map((f) => f.containerNode);
+      for (const c of listUndetectedCandidates(scope, detectedContainers)) {
+        console.log('[jfv-debug] undetected:', c.testid, c.labelText);
+      }
+    }
+
     const tabs = listTabs(scope);
     const hiddenTabsMeta = computeHiddenTabs(tabs, fields, hiddenSet);
     const sections = listSections(scope);
@@ -454,10 +464,12 @@ function init(): void {
 
   void loadSettings().then((settings) => {
     showFieldButtons = settings.showFieldButtons;
+    markOwnMutation(() => document.body.classList.toggle('jfv-debug', !!settings.debugOutline));
     if (onIssuePage) void render(listAll(getIssueRoot()));
   });
   onSettingsChanged((settings) => {
     showFieldButtons = settings.showFieldButtons;
+    markOwnMutation(() => document.body.classList.toggle('jfv-debug', !!settings.debugOutline));
     if (onIssuePage) void render(listAll(getIssueRoot()));
   });
 

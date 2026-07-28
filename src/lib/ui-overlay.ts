@@ -109,12 +109,14 @@ export function mountFieldToggle(
     if (getComputedStyle(field.containerNode).position === 'static') {
       field.containerNode.style.position = 'relative';
     }
+    field.containerNode.setAttribute('data-jfv-host', '');
     field.containerNode.appendChild(button);
   });
 
   return () => {
     markOwnMutation(() => {
       button.remove();
+      field.containerNode.removeAttribute('data-jfv-host');
     });
   };
 }

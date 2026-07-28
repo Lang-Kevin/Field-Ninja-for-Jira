@@ -148,8 +148,22 @@ export async function loadSettings(): Promise<Settings> {
   return { ...DEFAULT_SETTINGS, ...(result[SETTINGS_STORAGE_KEY] as Partial<Settings> | undefined) };
 }
 
-export async function saveSettings(settings: Settings): Promise<void> {
-  await chrome.storage.sync.set({ [SETTINGS_STORAGE_KEY]: settings });
+// ponytail: settings-only serialization chain, separate from writeQueue.
+// writeQueue's issuedWriteSeq/committedWriteSeq are documented as tracking
+// this module's own toggleField/setHiddenFields calls specifically (for
+// content-entry.ts's stale-onChanged detection on the PREFS key) — folding
+// unrelated settings writes into those counters would pollute that meaning.
+// This chain exists solely to stop concurrent saveSettings calls from
+// interleaving their read-modify-write and clobbering each other.
+let settingsWriteChain: Promise<unknown> = Promise.resolve();
+
+export function saveSettings(settings: Partial<Settings>): Promise<void> {
+  const result = settingsWriteChain.then(async () => {
+    const current = await loadSettings();
+    await chrome.storage.sync.set({ [SETTINGS_STORAGE_KEY]: { ...current, ...settings } });
+  });
+  settingsWriteChain = result.catch(() => undefined);
+  return result;
 }
 
 /** Mirrors onPrefsChanged but for the separate settings key. */
@@ -269,14 +283,43 @@ export async function loadFieldLabels(projectKey: string, issueTypeId: string):
   }
 }
 
-export function toggleField(
+async function doSetHiddenFields(
   projectKey: string | null,
   issueTypeId: string,
-  fieldId: string,
-  hidden: boolean
+  deduped: string[]
 ): Promise<PrefsStore> {
+  // Same gateway guard as doToggleField: never seed a bucket for an
+  // 'unknown'/not-ready issueTypeId.
+  if (!isKnownIssueType(issueTypeId)) {
+    return loadPrefs();
+  }
+
+  const resolvedProjectKey = projectKey ?? DEFAULT_PROJECT_KEY;
+  const store = await loadPrefs();
+  const key = makePrefKey(resolvedProjectKey, issueTypeId);
+
+  const updatedPref: Pref = {
+    projectKey: resolvedProjectKey,
+    issueTypeId,
+    hiddenFieldIds: deduped,
+  };
+
+  const updatedStore: PrefsStore = {
+    ...store,
+    [key]: updatedPref,
+  };
+
+  await savePrefs(updatedStore);
+  return updatedStore;
+}
+
+// Runs `fn` serialized after every prior queued write, converging
+// issuedWriteSeq/committedWriteSeq exactly like toggleField did inline —
+// shared by toggleField and setHiddenFields so both write paths are
+// serialized against each other in the same execution context.
+function enqueueWrite<T>(fn: () => Promise<T>): Promise<T> {
   issuedWriteSeq += 1;
-  const result = writeQueue.then(() => doToggleField(projectKey, issueTypeId, fieldId, hidden));
+  const result = writeQueue.then(fn);
   writeQueue = result.catch(() => undefined);
   // void: result's own rejection is already handled by writeQueue's .catch
   // above; this .finally() only exists to re-converge committedWriteSeq on
@@ -286,4 +329,34 @@ export function toggleField(
     committedWriteSeq += 1;
   });
   return result;
+}
+
+/**
+ * Sets the whole hidden-field list for one project+issueType combo in a
+ * single write (vs. N sequential toggleField calls). Empty list clears the
+ * pref entirely via clearPref. Non-empty writes are routed through the same
+ * writeQueue as toggleField so overlapping read-modify-write calls can't
+ * clobber each other.
+ */
+export async function setHiddenFields(
+  projectKey: string | null,
+  issueTypeId: string,
+  fieldIds: string[]
+): Promise<void> {
+  const deduped = [...new Set(fieldIds)];
+  if (deduped.length === 0) {
+    await clearPref(projectKey, issueTypeId);
+    return;
+  }
+
+  await enqueueWrite(() => doSetHiddenFields(projectKey, issueTypeId, deduped));
+}
+
+export function toggleField(
+  projectKey: string | null,
+  issueTypeId: string,
+  fieldId: string,
+  hidden: boolean
+): Promise<PrefsStore> {
+  return enqueueWrite(() => doToggleField(projectKey, issueTypeId, fieldId, hidden));
 }

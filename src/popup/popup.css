@@ -71,3 +71,32 @@ h1 {
 .jfv-reset-button:hover {
   background-color: #ffebe6;
 }
+
+.jfv-button-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.jfv-action-button {
+  flex: 1 1 0;
+  padding: 6px;
+  border: 1px solid #dfe1e6;
+  border-radius: 3px;
+  background: #fff;
+  color: #172b4d;
+  cursor: pointer;
+}
+
+.jfv-action-button:hover {
+  background-color: #f4f5f7;
+}
+
+.jfv-action-button:disabled {
+  color: #a5adba;
+  cursor: not-allowed;
+}
+
+.jfv-action-button:disabled:hover {
+  background-color: #fff;
+}

@@ -38,6 +38,13 @@
   font-size: 12px;
   line-height: 1;
   cursor: pointer;
+  opacity: .15;
+  transition: opacity .12s ease;
+}
+
+[data-jfv-host]:hover > .jfv-field-toggle,
+.jfv-field-toggle:focus-visible {
+  opacity: 1;
 }
 
 .jfv-field-toggle:hover {
@@ -70,6 +77,8 @@ html[data-color-mode='dark'] .jfv-field-toggle {
 html[data-color-mode='dark'] .jfv-field-toggle:hover {
   background-color: #2c333a;
 }
+
+.jfv-debug [data-jfv-host] { outline: 1px dashed #4c9aff; outline-offset: -1px; }
 
 html[data-color-mode='dark'] .jfv-field-toggle--hidden {
   background-color: #42221f;

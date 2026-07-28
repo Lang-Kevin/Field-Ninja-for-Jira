@@ -24,8 +24,9 @@ export const PREFS_STORAGE_KEY = 'jiraFieldVisibility:v2';
 
 export interface Settings {
   showFieldButtons: boolean;
+  debugOutline: boolean;
 }
 
 export const SETTINGS_STORAGE_KEY = 'jiraFieldVisibility:settings:v1';
 
-export const DEFAULT_SETTINGS: Settings = { showFieldButtons: true };
+export const DEFAULT_SETTINGS: Settings = { showFieldButtons: true, debugOutline: false };

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { getIssueType, getIssueRoot, watchIssueContext } from '../../src/lib/jira-context-resolver';
+import { getIssueType, getIssueRoot, watchIssueContext, isEligibleUrl } from '../../src/lib/jira-context-resolver';
 import { listFields } from '../../src/lib/field-registry';
 
 function setLocation(pathname: string, search = ''): void {
@@ -129,6 +129,52 @@ describe('watchIssueContext composite change-detection (S3)', () => {
     },
     8000,
   );
+});
+
+describe('isEligibleUrl', () => {
+  it('accepts a /browse/ issue URL', () => {
+    expect(isEligibleUrl('https://acme.atlassian.net/browse/A-1')).toBe(true);
+  });
+
+  it('accepts a /jira/ board URL', () => {
+    expect(isEligibleUrl('https://acme.atlassian.net/jira/software/projects/ABC/boards/1')).toBe(true);
+  });
+
+  it('rejects a non-jira path on an atlassian.net host', () => {
+    expect(isEligibleUrl('https://acme.atlassian.net/wiki/x')).toBe(false);
+  });
+
+  it('rejects a suffix-spoofed host', () => {
+    expect(isEligibleUrl('https://evilatlassian.net/browse/A-1')).toBe(false);
+  });
+
+  it('rejects an unrelated host', () => {
+    expect(isEligibleUrl('https://evil.com/browse/A-1')).toBe(false);
+  });
+
+  it('rejects undefined', () => {
+    expect(isEligibleUrl(undefined)).toBe(false);
+  });
+
+  it('rejects an unparseable string', () => {
+    expect(isEligibleUrl('not a url')).toBe(false);
+  });
+});
+
+describe('host on IssueContext', () => {
+  it('returns a lowercased host', () => {
+    setLocation('/browse/ABC-123');
+    expect(getIssueType().host).toBe('example.atlassian.net');
+  });
+});
+
+describe('projectKey path fallback (no issueKey)', () => {
+  it('derives projectKey from the path when issueKey is null', () => {
+    setLocation('/jira/software/projects/ABC/boards/1');
+    const ctx = getIssueType();
+    expect(ctx.issueKey).toBeNull();
+    expect(ctx.projectKey).toBe('ABC');
+  });
 });
 
 describe('board detail-panel scoping', () => {

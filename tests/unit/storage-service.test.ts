@@ -1,9 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-function createMockChromeStorage() {
+type ChangeListener = (changes: Record<string, { oldValue?: unknown; newValue?: unknown }>, area: string) => void;
+
+function createMockArea(areaName: string, dispatch: ChangeListener) {
   let store: Record<string, unknown> = {};
   return {
-    get: vi.fn((key: string | string[]) => {
+    get: vi.fn((key: string | string[] | null) => {
+      if (key === null) {
+        return Promise.resolve({ ...store });
+      }
       if (Array.isArray(key)) {
         const result: Record<string, unknown> = {};
         for (const k of key) {
@@ -14,12 +19,20 @@ function createMockChromeStorage() {
       return Promise.resolve(key in store ? { [key]: store[key] } : {});
     }),
     set: vi.fn((items: Record<string, unknown>) => {
+      const changes: Record<string, { oldValue?: unknown; newValue?: unknown }> = {};
+      for (const k of Object.keys(items)) changes[k] = { oldValue: store[k], newValue: items[k] };
       store = { ...store, ...items };
+      dispatch(changes, areaName);
       return Promise.resolve();
     }),
     remove: vi.fn((key: string | string[]) => {
       const keys = Array.isArray(key) ? key : [key];
-      for (const k of keys) delete store[k];
+      const changes: Record<string, { oldValue?: unknown; newValue?: unknown }> = {};
+      for (const k of keys) {
+        if (k in store) changes[k] = { oldValue: store[k], newValue: undefined };
+        delete store[k];
+      }
+      if (Object.keys(changes).length > 0) dispatch(changes, areaName);
       return Promise.resolve();
     }),
     QUOTA_BYTES_PER_ITEM: 8192,
@@ -30,11 +43,29 @@ function createMockChromeStorage() {
   };
 }
 
-let mockStorage: ReturnType<typeof createMockChromeStorage>;
+let listeners: ChangeListener[];
+let mockSync: ReturnType<typeof createMockArea>;
+let mockLocal: ReturnType<typeof createMockArea>;
 
 beforeEach(() => {
-  mockStorage = createMockChromeStorage();
-  (globalThis as any).chrome = { storage: { sync: mockStorage } };
+  listeners = [];
+  const dispatch: ChangeListener = (changes, area) => {
+    for (const l of listeners) l(changes, area);
+  };
+  mockSync = createMockArea('sync', dispatch);
+  mockLocal = createMockArea('local', dispatch);
+  (globalThis as any).chrome = {
+    storage: {
+      sync: mockSync,
+      local: mockLocal,
+      onChanged: {
+        addListener: (l: ChangeListener) => listeners.push(l),
+        removeListener: (l: ChangeListener) => {
+          listeners = listeners.filter((x) => x !== l);
+        },
+      },
+    },
+  };
 });
 
 import {
@@ -44,45 +75,62 @@ import {
   toggleField,
   clearPref,
   clearPrefs,
-  migrateIfNeeded,
   loadFieldLabels,
   setHiddenFields,
   loadSettings,
   saveSettings,
+  loadActivations,
+  isActivated,
+  setActivated,
+  onActivationsChanged,
+  onPrefsChanged,
+  dropLegacyPrefs,
 } from '../../src/lib/storage-service';
-import { PREFS_STORAGE_KEY, PREFS_STORAGE_KEY_V1, makePrefKey, fieldLabelKey } from '../../src/types/prefs';
+import {
+  PREFS_STORAGE_KEY,
+  ACTIVATIONS_STORAGE_KEY,
+  SETTINGS_STORAGE_KEY,
+  LEGACY_PREFS_KEYS,
+  makePrefKey,
+  makeScopeKey,
+  fieldLabelKey,
+} from '../../src/types/prefs';
+
+const HOST = 'acme.atlassian.net';
+const PROJECT = 'CSM';
 
 describe('toggleField', () => {
   it('adds fieldId to a fresh issueTypeId hiddenFieldIds when hidden: true', async () => {
-    const result = await toggleField('*', 'TYPE_A', 'field1', true);
-    const key = makePrefKey('*', 'TYPE_A');
+    const result = await toggleField(HOST, PROJECT, 'TYPE_A', 'field1', true);
+    const key = makePrefKey(HOST, PROJECT, 'TYPE_A');
     expect(result[key].hiddenFieldIds).toEqual(['field1']);
     expect(result[key].issueTypeId).toBe('TYPE_A');
-    expect(result[key].projectKey).toBe('*');
+    expect(result[key].projectKey).toBe(PROJECT);
+    expect(result[key].host).toBe(HOST);
   });
 
   it('removes fieldId from hiddenFieldIds when hidden: false on an already-hidden field', async () => {
-    await toggleField('*', 'TYPE_A', 'field1', true);
-    const result = await toggleField('*', 'TYPE_A', 'field1', false);
-    const key = makePrefKey('*', 'TYPE_A');
+    await toggleField(HOST, PROJECT, 'TYPE_A', 'field1', true);
+    const result = await toggleField(HOST, PROJECT, 'TYPE_A', 'field1', false);
+    const key = makePrefKey(HOST, PROJECT, 'TYPE_A');
     expect(result[key].hiddenFieldIds).toEqual([]);
   });
 
   it('does not duplicate fieldId when toggled hidden: true twice in a row', async () => {
-    await toggleField('*', 'TYPE_A', 'field1', true);
-    const result = await toggleField('*', 'TYPE_A', 'field1', true);
-    const key = makePrefKey('*', 'TYPE_A');
+    await toggleField(HOST, PROJECT, 'TYPE_A', 'field1', true);
+    const result = await toggleField(HOST, PROJECT, 'TYPE_A', 'field1', true);
+    const key = makePrefKey(HOST, PROJECT, 'TYPE_A');
     expect(result[key].hiddenFieldIds).toEqual(['field1']);
     expect(result[key].hiddenFieldIds.length).toBe(1);
   });
 
   it('keeps per-issueTypeId state isolated (critical invariant)', async () => {
-    await toggleField('*', 'TYPE_A', 'field1', true);
-    await toggleField('*', 'TYPE_B', 'field2', true);
+    await toggleField(HOST, PROJECT, 'TYPE_A', 'field1', true);
+    await toggleField(HOST, PROJECT, 'TYPE_B', 'field2', true);
 
     const store = await loadPrefs();
-    const keyA = makePrefKey('*', 'TYPE_A');
-    const keyB = makePrefKey('*', 'TYPE_B');
+    const keyA = makePrefKey(HOST, PROJECT, 'TYPE_A');
+    const keyB = makePrefKey(HOST, PROJECT, 'TYPE_B');
 
     expect(store[keyA].hiddenFieldIds).toEqual(['field1']);
     expect(store[keyA].hiddenFieldIds).not.toContain('field2');
@@ -92,143 +140,75 @@ describe('toggleField', () => {
     expect(store[keyB].hiddenFieldIds).not.toContain('field1');
     expect(store[keyB].hiddenFieldIds.length).toBe(1);
   });
+
+  it('keeps state isolated across sites (critical invariant)', async () => {
+    await toggleField('a.atlassian.net', 'ABC', 'story', 'f1', true);
+
+    const prefOnB = await getPref('b.atlassian.net', 'ABC', 'story');
+    expect(prefOnB.hiddenFieldIds).toEqual([]);
+
+    const prefOnA = await getPref('a.atlassian.net', 'ABC', 'story');
+    expect(prefOnA.hiddenFieldIds).toEqual(['f1']);
+  });
+
+  it('keeps state isolated across projects on the same host', async () => {
+    await toggleField(HOST, 'PROJ_A', 'story', 'f1', true);
+
+    const prefB = await getPref(HOST, 'PROJ_B', 'story');
+    expect(prefB.hiddenFieldIds).toEqual([]);
+
+    const prefA = await getPref(HOST, 'PROJ_A', 'story');
+    expect(prefA.hiddenFieldIds).toEqual(['f1']);
+  });
+
+  it('is a no-op for an empty host or a null projectKey (write guard)', async () => {
+    await toggleField(HOST, PROJECT, 'TYPE_A', 'field1', true);
+
+    await toggleField('', PROJECT, 'TYPE_A', 'field2', true);
+    await toggleField(HOST, null, 'TYPE_A', 'field3', true);
+
+    const store = await loadPrefs();
+    expect(Object.keys(store)).toEqual([makePrefKey(HOST, PROJECT, 'TYPE_A')]);
+    expect(store[makePrefKey(HOST, PROJECT, 'TYPE_A')].hiddenFieldIds).toEqual(['field1']);
+  });
 });
 
 describe('getPref', () => {
   it('returns a fresh default pref for a non-existent issueTypeId without persisting it', async () => {
-    const pref = await getPref('*', 'UNKNOWN_TYPE');
-    expect(pref).toEqual({ projectKey: '*', issueTypeId: 'UNKNOWN_TYPE', hiddenFieldIds: [] });
+    const pref = await getPref(HOST, PROJECT, 'UNKNOWN_TYPE');
+    expect(pref).toEqual({ host: HOST, projectKey: PROJECT, issueTypeId: 'UNKNOWN_TYPE', hiddenFieldIds: [] });
 
     const store = await loadPrefs();
-    expect(store[makePrefKey('*', 'UNKNOWN_TYPE')]).toBeUndefined();
+    expect(store[makePrefKey(HOST, PROJECT, 'UNKNOWN_TYPE')]).toBeUndefined();
   });
 
-  it('returns exact project entry when it exists', async () => {
-    await toggleField('CSM', 'TYPE_A', 'field1', true);
-    const pref = await getPref('CSM', 'TYPE_A');
-    expect(pref.projectKey).toBe('CSM');
+  it('returns exact entry when it exists', async () => {
+    await toggleField(HOST, PROJECT, 'TYPE_A', 'field1', true);
+    const pref = await getPref(HOST, PROJECT, 'TYPE_A');
+    expect(pref.projectKey).toBe(PROJECT);
     expect(pref.hiddenFieldIds).toContain('field1');
   });
-});
 
-describe('migrateIfNeeded', () => {
-  it('returns {} for null', () => {
-    expect(migrateIfNeeded(null)).toEqual({});
-  });
-
-  it('returns {} for undefined', () => {
-    expect(migrateIfNeeded(undefined)).toEqual({});
-  });
-
-  it('returns {} for a non-object input (string)', () => {
-    expect(migrateIfNeeded('not-an-object')).toEqual({});
-  });
-
-  it('passes through already-v2 data (keys contain ":")', () => {
-    const input = { '*:TYPE_A': { projectKey: '*', issueTypeId: 'TYPE_A', hiddenFieldIds: ['f1'] } };
-    expect(migrateIfNeeded(input)).toBe(input);
-  });
-
-  it('migrates v1 data: bare issueTypeId keys → composite *:issueTypeId keys', () => {
-    const v1 = {
-      incident: { issueTypeId: 'incident', hiddenFieldIds: ['f1', 'f2'] },
-      task: { issueTypeId: 'task', hiddenFieldIds: [] },
-    };
-    const migrated = migrateIfNeeded(v1);
-    expect(migrated['*:incident']).toEqual({ projectKey: '*', issueTypeId: 'incident', hiddenFieldIds: ['f1', 'f2'] });
-    expect(migrated['*:task']).toEqual({ projectKey: '*', issueTypeId: 'task', hiddenFieldIds: [] });
-    expect(migrated['incident']).toBeUndefined();
-    expect(migrated['task']).toBeUndefined();
+  it('never matches a stored pref when projectKey is null', async () => {
+    await toggleField(HOST, PROJECT, 'TYPE_A', 'field1', true);
+    const pref = await getPref(HOST, null, 'TYPE_A');
+    expect(pref.hiddenFieldIds).toEqual([]);
   });
 });
 
-describe('migration v1→v2 in loadPrefs', () => {
-  it('reads v1 key, migrates to v2, persists under v2 key', async () => {
-    // Simulate v1 data stored under the old key
-    const v1Data = {
-      incident: { issueTypeId: 'incident', hiddenFieldIds: ['summary'] },
-    };
-    await mockStorage.set({ [PREFS_STORAGE_KEY_V1]: v1Data });
-
-    const store = await loadPrefs();
-
-    // v2 composite key should exist
-    expect(store['*:incident']).toEqual({ projectKey: '*', issueTypeId: 'incident', hiddenFieldIds: ['summary'] });
-
-    // Should have been persisted under v2 key
-    const raw = mockStorage._raw();
-    expect(raw[PREFS_STORAGE_KEY]).toBeDefined();
-    expect((raw[PREFS_STORAGE_KEY] as any)['*:incident']).toEqual({
-      projectKey: '*', issueTypeId: 'incident', hiddenFieldIds: ['summary'],
-    });
-  });
-
-  it('v2 key takes precedence over v1 key (idempotent — no double-migration)', async () => {
-    const v1Data = { incident: { issueTypeId: 'incident', hiddenFieldIds: ['summary'] } };
-    const v2Data = { '*:task': { projectKey: '*', issueTypeId: 'task', hiddenFieldIds: ['desc'] } };
-    await mockStorage.set({ [PREFS_STORAGE_KEY_V1]: v1Data, [PREFS_STORAGE_KEY]: v2Data });
-
-    const store = await loadPrefs();
-
-    // v2 data wins — v1 NOT merged
-    expect(store['*:task']).toBeDefined();
-    expect(store['*:incident']).toBeUndefined();
-  });
-
-  it('v1 key is deleted from storage after migration so re-migration never fires', async () => {
-    const v1Data = { incident: { issueTypeId: 'incident', hiddenFieldIds: ['summary'] } };
-    await mockStorage.set({ [PREFS_STORAGE_KEY_V1]: v1Data });
-
-    await loadPrefs();
-
-    // v1 key must be gone
-    expect(mockStorage._raw()[PREFS_STORAGE_KEY_V1]).toBeUndefined();
-  });
-
-  it('concurrent v2 write during migration is preserved (merge, not overwrite)', async () => {
-    // Simulate v1 data
-    const v1Data = {
-      incident: { issueTypeId: 'incident', hiddenFieldIds: ['summary'] },
-    };
-    await mockStorage.set({ [PREFS_STORAGE_KEY_V1]: v1Data });
-
-    // Intercept the second get() call (the merge re-read) to inject a concurrent v2 entry
-    // that "another tab" wrote between the initial get and the savePrefs write.
-    const originalGet = mockStorage.get.bind(mockStorage);
-    let getCallCount = 0;
-    mockStorage.get = vi.fn((key: string | string[]) => {
-      getCallCount++;
-      // First call: the loadPrefs get([v2key, v1key]) — return both
-      if (getCallCount === 1) return originalGet(key);
-      // Second call: the merge re-read — inject a concurrent v2 entry
-      return Promise.resolve({
-        [PREFS_STORAGE_KEY]: { '*:task': { projectKey: '*', issueTypeId: 'task', hiddenFieldIds: ['concurrent'] } },
-      });
-    });
-
-    const store = await loadPrefs();
-
-    // Migrated v1 entry survives
-    expect(store['*:incident']).toEqual({ projectKey: '*', issueTypeId: 'incident', hiddenFieldIds: ['summary'] });
-    // Concurrent v2 entry wins (not clobbered)
-    expect(store['*:task']).toEqual({ projectKey: '*', issueTypeId: 'task', hiddenFieldIds: ['concurrent'] });
-    // v1 key must be removed
-    expect(mockStorage._raw()[PREFS_STORAGE_KEY_V1]).toBeUndefined();
-  });
-
-  it('clearPrefs removes both v1 and v2 keys so subsequent loadPrefs returns {}', async () => {
-    const v1Data = { incident: { issueTypeId: 'incident', hiddenFieldIds: ['summary'] } };
-    await mockStorage.set({ [PREFS_STORAGE_KEY_V1]: v1Data });
-    // Also write a v2 key
-    await toggleField('*', 'incident', 'summary', true);
+describe('clearPrefs', () => {
+  it('removes the prefs key, leaving activations and settings intact', async () => {
+    await toggleField(HOST, PROJECT, 'TYPE_A', 'field1', true);
+    await setActivated(HOST, PROJECT, true);
+    await saveSettings({ showFieldButtons: false });
 
     await clearPrefs();
 
-    const raw = mockStorage._raw();
+    const raw = mockSync._raw();
     expect(raw[PREFS_STORAGE_KEY]).toBeUndefined();
-    expect(raw[PREFS_STORAGE_KEY_V1]).toBeUndefined();
+    expect(raw[ACTIVATIONS_STORAGE_KEY]).toBeDefined();
+    expect(raw[SETTINGS_STORAGE_KEY]).toBeDefined();
 
-    // loadPrefs must return {} without triggering re-migration
     const store = await loadPrefs();
     expect(store).toEqual({});
   });
@@ -236,95 +216,91 @@ describe('migration v1→v2 in loadPrefs', () => {
 
 describe('clearPref', () => {
   it('removes only the specified composite entry', async () => {
-    await toggleField('*', 'TYPE_A', 'field1', true);
-    await toggleField('*', 'TYPE_B', 'field2', true);
+    await toggleField(HOST, PROJECT, 'TYPE_A', 'field1', true);
+    await toggleField(HOST, PROJECT, 'TYPE_B', 'field2', true);
 
-    await clearPref('*', 'TYPE_A');
+    await clearPref(HOST, PROJECT, 'TYPE_A');
 
     const store = await loadPrefs();
-    expect(store[makePrefKey('*', 'TYPE_A')]).toBeUndefined();
-    expect(store[makePrefKey('*', 'TYPE_B')]).toBeDefined();
+    expect(store[makePrefKey(HOST, PROJECT, 'TYPE_A')]).toBeUndefined();
+    expect(store[makePrefKey(HOST, PROJECT, 'TYPE_B')]).toBeDefined();
   });
 
   it('is a no-op when the entry does not exist', async () => {
-    await toggleField('*', 'TYPE_A', 'field1', true);
-    await clearPref('CSM', 'TYPE_A'); // CSM entry doesn't exist
+    await toggleField(HOST, PROJECT, 'TYPE_A', 'field1', true);
+    await clearPref(HOST, 'OTHER_PROJECT', 'TYPE_A');
 
     const store = await loadPrefs();
-    expect(store[makePrefKey('*', 'TYPE_A')]).toBeDefined(); // unaffected
+    expect(store[makePrefKey(HOST, PROJECT, 'TYPE_A')]).toBeDefined();
   });
 
-  it('coerces null projectKey to wildcard', async () => {
-    await toggleField('*', 'TYPE_A', 'field1', true);
-    await clearPref(null, 'TYPE_A');
+  it('is a no-op for an empty host or a null projectKey', async () => {
+    await toggleField(HOST, PROJECT, 'TYPE_A', 'field1', true);
+
+    await clearPref('', PROJECT, 'TYPE_A');
+    await clearPref(HOST, null, 'TYPE_A');
 
     const store = await loadPrefs();
-    expect(store[makePrefKey('*', 'TYPE_A')]).toBeUndefined();
+    expect(store[makePrefKey(HOST, PROJECT, 'TYPE_A')]).toBeDefined();
   });
 });
 
 describe('setHiddenFields', () => {
   it('dedupes duplicate fieldIds into a single entry each, in a single write', async () => {
-    const setSpy = vi.spyOn(mockStorage, 'set');
-    await setHiddenFields('*', 'TYPE_A', ['field1', 'field1', 'field2']);
+    const setSpy = vi.spyOn(mockSync, 'set');
+    await setHiddenFields(HOST, PROJECT, 'TYPE_A', ['field1', 'field1', 'field2']);
     const store = await loadPrefs();
-    const key = makePrefKey('*', 'TYPE_A');
+    const key = makePrefKey(HOST, PROJECT, 'TYPE_A');
     expect(store[key].hiddenFieldIds.sort()).toEqual(['field1', 'field2']);
     expect(setSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("coerces a null projectKey to '*'", async () => {
-    await setHiddenFields(null, 'TYPE_A', ['field1']);
+  it('is a no-op for an empty host or a null projectKey (write guard)', async () => {
+    await setHiddenFields('', PROJECT, 'TYPE_A', ['field1']);
+    await setHiddenFields(HOST, null, 'TYPE_A', ['field1']);
+
     const store = await loadPrefs();
-    const key = makePrefKey('*', 'TYPE_A');
-    expect(store[key]).toEqual({ projectKey: '*', issueTypeId: 'TYPE_A', hiddenFieldIds: ['field1'] });
+    expect(store).toEqual({});
   });
 
   it('clears the pref when given an empty array', async () => {
-    await toggleField('*', 'TYPE_A', 'field1', true);
-    await setHiddenFields('*', 'TYPE_A', []);
+    await toggleField(HOST, PROJECT, 'TYPE_A', 'field1', true);
+    await setHiddenFields(HOST, PROJECT, 'TYPE_A', []);
     const store = await loadPrefs();
-    expect(store[makePrefKey('*', 'TYPE_A')]).toBeUndefined();
+    expect(store[makePrefKey(HOST, PROJECT, 'TYPE_A')]).toBeUndefined();
   });
 
   it('writes the given hiddenFieldIds list in one savePrefs call', async () => {
-    const setSpy = vi.spyOn(mockStorage, 'set');
-    await setHiddenFields('CSM', 'TYPE_A', ['fieldA', 'fieldB']);
+    const setSpy = vi.spyOn(mockSync, 'set');
+    await setHiddenFields(HOST, PROJECT, 'TYPE_A', ['fieldA', 'fieldB']);
 
     const store = await loadPrefs();
-    const key = makePrefKey('CSM', 'TYPE_A');
-    expect(store[key]).toEqual({ projectKey: 'CSM', issueTypeId: 'TYPE_A', hiddenFieldIds: ['fieldA', 'fieldB'] });
+    const key = makePrefKey(HOST, PROJECT, 'TYPE_A');
+    expect(store[key]).toEqual({ host: HOST, projectKey: PROJECT, issueTypeId: 'TYPE_A', hiddenFieldIds: ['fieldA', 'fieldB'] });
     expect(setSpy).toHaveBeenCalledTimes(1);
   });
 });
 
 describe('loadFieldLabels', () => {
-  let mockLocalStorage: ReturnType<typeof createMockChromeStorage>;
-
-  beforeEach(() => {
-    mockLocalStorage = createMockChromeStorage();
-    (globalThis as any).chrome.storage.local = mockLocalStorage;
-  });
-
   it('returns the stored label map when the key exists', async () => {
-    const key = fieldLabelKey('CSM', 'TYPE_A');
-    await mockLocalStorage.set({ [key]: { field1: 'Summary' } });
+    const key = fieldLabelKey(HOST, PROJECT, 'TYPE_A');
+    await mockLocal.set({ [key]: { field1: 'Summary' } });
 
-    const labels = await loadFieldLabels('CSM', 'TYPE_A');
+    const labels = await loadFieldLabels(HOST, PROJECT, 'TYPE_A');
     expect(labels).toEqual({ field1: 'Summary' });
   });
 
   it('returns {} when the key is missing', async () => {
-    const labels = await loadFieldLabels('CSM', 'TYPE_A');
+    const labels = await loadFieldLabels(HOST, PROJECT, 'TYPE_A');
     expect(labels).toEqual({});
   });
 
   it('returns {} when chrome.storage.local.get throws (best-effort)', async () => {
-    mockLocalStorage.get = vi.fn<[key: string | string[]], Promise<Record<string, unknown>>>(() => {
+    mockLocal.get = vi.fn<[key: string | string[] | null], Promise<Record<string, unknown>>>(() => {
       throw new Error('storage unavailable');
     });
 
-    const labels = await loadFieldLabels('CSM', 'TYPE_A');
+    const labels = await loadFieldLabels(HOST, PROJECT, 'TYPE_A');
     expect(labels).toEqual({});
   });
 });
@@ -342,17 +318,120 @@ describe('saveSettings', () => {
 
 describe('loadPrefs / savePrefs', () => {
   it('round-trips a store through savePrefs and loadPrefs', async () => {
+    const key = makePrefKey(HOST, PROJECT, 'TYPE_A');
     const store = {
-      '*:TYPE_A': { projectKey: '*', issueTypeId: 'TYPE_A', hiddenFieldIds: ['f1', 'f2'] },
+      [key]: { host: HOST, projectKey: PROJECT, issueTypeId: 'TYPE_A', hiddenFieldIds: ['f1', 'f2'] },
     };
     await savePrefs(store);
     const loaded = await loadPrefs();
     expect(loaded).toEqual(store);
-    expect(mockStorage._raw()[PREFS_STORAGE_KEY]).toEqual(store);
+    expect(mockSync._raw()[PREFS_STORAGE_KEY]).toEqual(store);
   });
 
   it('returns {} when nothing has been saved yet', async () => {
     const loaded = await loadPrefs();
     expect(loaded).toEqual({});
+  });
+});
+
+describe('activations', () => {
+  it('setActivated(true) makes isActivated true', async () => {
+    await setActivated(HOST, PROJECT, true);
+    expect(await isActivated(HOST, PROJECT)).toBe(true);
+  });
+
+  it('setActivated(false) removes the key but leaves stored hidden fields intact', async () => {
+    await setActivated(HOST, PROJECT, true);
+    await toggleField(HOST, PROJECT, 'TYPE_A', 'field1', true);
+
+    await setActivated(HOST, PROJECT, false);
+
+    expect(await isActivated(HOST, PROJECT)).toBe(false);
+    const activations = await loadActivations();
+    expect(activations[makeScopeKey(HOST, PROJECT)]).toBeUndefined();
+
+    const pref = await getPref(HOST, PROJECT, 'TYPE_A');
+    expect(pref.hiddenFieldIds).toEqual(['field1']);
+  });
+
+  it('two concurrent setActivated calls both land', async () => {
+    const p1 = setActivated(HOST, 'PROJ_A', true);
+    const p2 = setActivated(HOST, 'PROJ_B', true);
+    await Promise.all([p1, p2]);
+
+    const activations = await loadActivations();
+    expect(activations[makeScopeKey(HOST, 'PROJ_A')]).toBe(true);
+    expect(activations[makeScopeKey(HOST, 'PROJ_B')]).toBe(true);
+  });
+
+  it('setActivated with an empty host or empty projectKey is a no-op', async () => {
+    await setActivated('', PROJECT, true);
+    await setActivated(HOST, '', true);
+
+    const activations = await loadActivations();
+    expect(activations).toEqual({});
+  });
+});
+
+describe('onChanged listeners', () => {
+  it('onActivationsChanged fires on an activations change and not on a prefs change', async () => {
+    const cb = vi.fn();
+    const unsubscribe = onActivationsChanged(cb);
+
+    await toggleField(HOST, PROJECT, 'TYPE_A', 'field1', true);
+    expect(cb).not.toHaveBeenCalled();
+
+    await setActivated(HOST, PROJECT, true);
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(cb).toHaveBeenCalledWith(expect.objectContaining({ [makeScopeKey(HOST, PROJECT)]: true }));
+
+    unsubscribe();
+  });
+
+  it('onPrefsChanged fires on a prefs change and not on an activations change', async () => {
+    const cb = vi.fn();
+    const unsubscribe = onPrefsChanged(cb);
+
+    await setActivated(HOST, PROJECT, true);
+    expect(cb).not.toHaveBeenCalled();
+
+    await toggleField(HOST, PROJECT, 'TYPE_A', 'field1', true);
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    unsubscribe();
+  });
+});
+
+describe('dropLegacyPrefs', () => {
+  it('removes legacy sync and local keys, leaving current keys and unrelated keys intact', async () => {
+    await toggleField(HOST, PROJECT, 'TYPE_A', 'field1', true);
+    await setActivated(HOST, PROJECT, true);
+    await saveSettings({ showFieldButtons: false });
+
+    await mockSync.set({ 'jiraFieldVisibility:v1': { some: 'legacy' } });
+    await mockSync.set({ 'jiraFieldVisibility:v2': { some: 'legacy' } });
+    await mockLocal.set({
+      'jfv-field-labels:v1:foo': { a: 'b' },
+      'jfv-tab-fields:v1:foo': { a: 'b' },
+      'jfv-section-fields:v1:foo': { a: 'b' },
+      'unrelated-key': { keep: true },
+    });
+
+    await dropLegacyPrefs();
+
+    const rawSync = mockSync._raw();
+    expect(rawSync['jiraFieldVisibility:v1']).toBeUndefined();
+    expect(rawSync['jiraFieldVisibility:v2']).toBeUndefined();
+    expect(rawSync[PREFS_STORAGE_KEY]).toBeDefined();
+    expect(rawSync[SETTINGS_STORAGE_KEY]).toBeDefined();
+    expect(rawSync[ACTIVATIONS_STORAGE_KEY]).toBeDefined();
+
+    const rawLocal = mockLocal._raw();
+    expect(rawLocal['jfv-field-labels:v1:foo']).toBeUndefined();
+    expect(rawLocal['jfv-tab-fields:v1:foo']).toBeUndefined();
+    expect(rawLocal['jfv-section-fields:v1:foo']).toBeUndefined();
+    expect(rawLocal['unrelated-key']).toEqual({ keep: true });
+
+    expect(LEGACY_PREFS_KEYS).toEqual(['jiraFieldVisibility:v1', 'jiraFieldVisibility:v2']);
   });
 });

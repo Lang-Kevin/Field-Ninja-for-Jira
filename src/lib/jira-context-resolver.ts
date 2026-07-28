@@ -22,9 +22,33 @@ export interface IssueContext {
   issueTypeId: string;
   issueKey: string | null;
   projectKey: string | null;
+  host: string;
 }
 
-const UNKNOWN_CONTEXT: IssueContext = { issueTypeId: 'unknown', issueKey: null, projectKey: null };
+const UNKNOWN_CONTEXT: IssueContext = { issueTypeId: 'unknown', issueKey: null, projectKey: null, host: '' };
+
+/**
+ * Shared eligibility check for the popup and the service worker: is this URL
+ * a Jira Cloud page the extension should activate on? `endsWith` (not an
+ * exact-match/regex-anchor) is deliberate — it rejects suffix-spoof hosts
+ * like `evilatlassian.net` while still matching any `*.atlassian.net`.
+ */
+export function isEligibleUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  try {
+    const u = new URL(url);
+    return (
+      u.hostname.endsWith('.atlassian.net') &&
+      (u.pathname.startsWith('/browse/') || u.pathname.startsWith('/jira/'))
+    );
+  } catch {
+    return false;
+  }
+}
+
+// Fallback for board/backlog URLs with no issue key, e.g.
+// /jira/software/projects/ABC/boards/1 -> 'ABC'.
+const PROJECT_KEY_PATH_REGEX = /\/jira\/[^/]+\/projects\/([A-Z][A-Z0-9]*)/;
 
 // Provisional, hardened in Wave 5/7 with real Jira fixtures.
 // Jira's actual data-testid naming isn't confirmed yet, so we try a couple
@@ -175,13 +199,30 @@ export function getIssueRoot(): ParentNode {
 }
 
 export function getIssueType(): IssueContext {
+  let host = '';
+  try {
+    host = (window.location?.hostname ?? '').toLowerCase();
+  } catch {
+    host = '';
+  }
+
   try {
     // Gate on the URL, not just a DOM badge: issue-type icons also render on
     // board/backlog cards, so a DOM-only check would activate the extension
     // outside of a single issue's detail view.
     const issueKey = readIssueKeyFromUrl();
     if (issueKey === null) {
-      return { ...UNKNOWN_CONTEXT };
+      // No issue key (e.g. a bare board URL) — still worth naming the
+      // project scope from the path so callers like the popup can label it.
+      let projectKey: string | null = null;
+      try {
+        const pathname = window.location?.pathname ?? '';
+        const match = PROJECT_KEY_PATH_REGEX.exec(pathname);
+        projectKey = match ? match[1] : null;
+      } catch {
+        projectKey = null;
+      }
+      return { ...UNKNOWN_CONTEXT, host, projectKey };
     }
 
     const issueTypeId = readIssueTypeFromDom(getIssueRoot());
@@ -190,10 +231,11 @@ export function getIssueType(): IssueContext {
       issueTypeId: issueTypeId ?? 'unknown',
       issueKey,
       projectKey,
+      host,
     };
   } catch {
     // Belt-and-suspenders: this function must never throw.
-    return { ...UNKNOWN_CONTEXT };
+    return { ...UNKNOWN_CONTEXT, host };
   }
 }
 
@@ -273,7 +315,7 @@ export function watchIssueContext(cb: (ctx: IssueContext) => void): () => void {
 
     // Use composite key so CSM-1(Incident) → ITSM-2(Incident) fires the cb
     // even when issueTypeId is unchanged across projects.
-    const key = `${ctx.projectKey}:${ctx.issueTypeId}`;
+    const key = `${ctx.host}:${ctx.projectKey}:${ctx.issueTypeId}`;
     if (key !== lastKey) {
       lastKey = key;
       try {

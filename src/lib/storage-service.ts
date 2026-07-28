@@ -1,10 +1,12 @@
-import type { Pref, PrefsStore, Settings } from '../types/prefs';
+import type { ActivationStore, Pref, PrefsStore, Settings } from '../types/prefs';
 import {
   PREFS_STORAGE_KEY,
-  PREFS_STORAGE_KEY_V1,
+  ACTIVATIONS_STORAGE_KEY,
   SETTINGS_STORAGE_KEY,
   DEFAULT_SETTINGS,
+  LEGACY_PREFS_KEYS,
   makePrefKey,
+  makeScopeKey,
   fieldLabelKey,
 } from '../types/prefs';
 import { isKnownIssueType } from './jira-context-resolver';
@@ -21,58 +23,16 @@ import { isKnownIssueType } from './jira-context-resolver';
  * so it isn't a general "is storage settled" signal and shouldn't be reused
  * as one elsewhere (e.g. the options page) without re-checking that scoping.
  *
- * Storage escape-hatch note: savePrefs caps the single v2 item at
- * QUOTA_BYTES_PER_ITEM (8KB). If per-project × per-type entry count ever
- * exceeds that, split into per-project keys `jiraFieldVisibility:v2:${projectKey}`
+ * Storage escape-hatch note: savePrefs caps the single v3 item
+ * (PREFS_STORAGE_KEY, `jiraFieldVisibility:v3`) at QUOTA_BYTES_PER_ITEM (8KB).
+ * If per-host × per-project × per-type entry count ever exceeds that, split
+ * into per-project keys (e.g. `jiraFieldVisibility:v3:${projectKey}`)
  * (chrome.storage.sync allows up to 512 items / 100KB total).
  */
 
-export function migrateIfNeeded(raw: unknown): PrefsStore {
-  if (raw === null || raw === undefined || typeof raw !== 'object') {
-    return {};
-  }
-  const obj = raw as Record<string, unknown>;
-  const keys = Object.keys(obj);
-  // Detect v1: any key without ':' means this is a legacy (pre-v2) store.
-  // v2 keys always contain ':' (composite `projectKey:issueTypeId` format).
-  if (keys.length > 0 && keys.some((k) => !k.includes(':'))) {
-    const migrated: PrefsStore = {};
-    for (const [issueTypeId, pref] of Object.entries(obj)) {
-      // ponytail: migration is removed in the next step
-      const compositeKey = makePrefKey('*', issueTypeId);
-      migrated[compositeKey] = {
-        projectKey: '*',
-        issueTypeId,
-        hiddenFieldIds: (pref as { hiddenFieldIds?: string[] }).hiddenFieldIds ?? [],
-      };
-    }
-    return migrated;
-  }
-  return obj as PrefsStore;
-}
-
 export async function loadPrefs(): Promise<PrefsStore> {
-  const result = await chrome.storage.sync.get([PREFS_STORAGE_KEY, PREFS_STORAGE_KEY_V1]);
-  const rawV2 = result[PREFS_STORAGE_KEY];
-  if (rawV2 !== undefined) {
-    return migrateIfNeeded(rawV2);
-  }
-  // No v2 data — attempt lazy migration from v1
-  const rawV1 = result[PREFS_STORAGE_KEY_V1];
-  if (rawV1 === undefined) {
-    return {};
-  }
-  const migrated = migrateIfNeeded(rawV1);
-  // Merge guard: re-read v2 immediately before writing so a concurrent tab
-  // that wrote v2 during our async gap isn't clobbered. Existing v2 entries
-  // WIN over migrated ones. Not fully atomic (no storage transactions), but
-  // the gap shrinks to negligible — the only remaining window is the single
-  // round-trip between this get and the following set.
-  const { [PREFS_STORAGE_KEY]: latestV2 = {} } = await chrome.storage.sync.get(PREFS_STORAGE_KEY);
-  const merged = { ...migrated, ...(latestV2 as Record<string, unknown>) };
-  await savePrefs(merged as PrefsStore);
-  await chrome.storage.sync.remove(PREFS_STORAGE_KEY_V1);
-  return merged as PrefsStore;
+  const result = await chrome.storage.sync.get(PREFS_STORAGE_KEY);
+  return (result[PREFS_STORAGE_KEY] as PrefsStore | undefined) ?? {};
 }
 
 export async function savePrefs(store: PrefsStore): Promise<void> {
@@ -90,29 +50,36 @@ export async function savePrefs(store: PrefsStore): Promise<void> {
 }
 
 /**
- * Returns the pref for a project+issueType combo.
- * Null projectKey is coerced to '*' at this boundary.
+ * Returns the pref for a host+project+issueType combo. Exact-key lookup only
+ * — no fallback chain. A null projectKey never matches a stored pref.
  */
-export async function getPref(projectKey: string | null, issueTypeId: string): Promise<Pref> {
-  const resolvedProjectKey = projectKey ?? '*';
+export async function getPref(
+  host: string,
+  projectKey: string | null,
+  issueTypeId: string
+): Promise<Pref> {
+  if (projectKey === null) {
+    return { host, projectKey: '', issueTypeId, hiddenFieldIds: [] };
+  }
   const store = await loadPrefs();
-  const exactKey = makePrefKey(resolvedProjectKey, issueTypeId);
-  return (
-    store[exactKey] ??
-    { projectKey: resolvedProjectKey, issueTypeId, hiddenFieldIds: [] }
-  );
+  const exactKey = makePrefKey(host, projectKey, issueTypeId);
+  return store[exactKey] ?? { host, projectKey, issueTypeId, hiddenFieldIds: [] };
 }
 
 /** Clears all per-issue-type hidden-field prefs. Leaves Settings untouched. */
 export async function clearPrefs(): Promise<void> {
-  await chrome.storage.sync.remove([PREFS_STORAGE_KEY, PREFS_STORAGE_KEY_V1]);
+  await chrome.storage.sync.remove(PREFS_STORAGE_KEY);
 }
 
-/** Deletes the pref for a single project+issueType combo. */
-export async function clearPref(projectKey: string | null, issueTypeId: string): Promise<void> {
-  const resolvedProjectKey = projectKey ?? '*';
+/** Deletes the pref for a single host+project+issueType combo. */
+export async function clearPref(
+  host: string,
+  projectKey: string | null,
+  issueTypeId: string
+): Promise<void> {
+  if (!host || !projectKey) return;
   const store = await loadPrefs();
-  const key = makePrefKey(resolvedProjectKey, issueTypeId);
+  const key = makePrefKey(host, projectKey, issueTypeId);
   if (!(key in store)) return;
   const updatedStore = { ...store };
   delete updatedStore[key];
@@ -134,7 +101,7 @@ export function onPrefsChanged(cb: (store: PrefsStore) => void): () => void {
     if (areaName !== 'sync' || !(PREFS_STORAGE_KEY in changes)) {
       return;
     }
-    cb(migrateIfNeeded(changes[PREFS_STORAGE_KEY].newValue));
+    cb((changes[PREFS_STORAGE_KEY].newValue as PrefsStore | undefined) ?? {});
   };
   chrome.storage.onChanged.addListener(listener);
   return () => chrome.storage.onChanged.removeListener(listener);
@@ -178,7 +145,16 @@ export function onSettingsChanged(cb: (settings: Settings) => void): () => void 
   return () => chrome.storage.onChanged.removeListener(listener);
 }
 
+// ponytail: single shared write guard — a write with an empty host or a
+// null/missing project key must never reach savePrefs, since that would
+// produce a malformed composite key. Collapses the two isKnownIssueType-only
+// guards that used to live separately in doToggleField/doSetHiddenFields.
+function isWritableScope(host: string, projectKey: string | null, issueTypeId: string): boolean {
+  return !!host && !!projectKey && isKnownIssueType(issueTypeId);
+}
+
 async function doToggleField(
+  host: string,
   projectKey: string | null,
   issueTypeId: string,
   fieldId: string,
@@ -187,15 +163,15 @@ async function doToggleField(
   // ponytail: guard at the single storage gateway rather than every caller,
   // so an 'unknown' issueTypeId (resolved-context not yet ready) can never
   // create a bogus PrefsStore bucket, no matter who calls toggleField.
-  if (!isKnownIssueType(issueTypeId)) {
+  if (!isWritableScope(host, projectKey, issueTypeId)) {
     return loadPrefs();
   }
+  const resolvedProjectKey = projectKey as string;
 
-  const resolvedProjectKey = projectKey ?? '*';
   const store = await loadPrefs();
 
-  const exactKey = makePrefKey(resolvedProjectKey, issueTypeId);
-  const seed = store[exactKey] ?? { projectKey: resolvedProjectKey, issueTypeId, hiddenFieldIds: [] };
+  const exactKey = makePrefKey(host, resolvedProjectKey, issueTypeId);
+  const seed = store[exactKey] ?? { host, projectKey: resolvedProjectKey, issueTypeId, hiddenFieldIds: [] };
 
   const hiddenSet = new Set(seed.hiddenFieldIds);
   if (hidden) {
@@ -205,6 +181,7 @@ async function doToggleField(
   }
 
   const updatedPref: Pref = {
+    host,
     projectKey: resolvedProjectKey,
     issueTypeId,
     hiddenFieldIds: [...hiddenSet],
@@ -266,9 +243,9 @@ export async function waitForWritesToSettle(): Promise<void> {
  * prefs live) — it's written by content-entry.ts as a best-effort lookup aid,
  * never authoritative. Best-effort; missing → {}.
  */
-export async function loadFieldLabels(projectKey: string, issueTypeId: string):
+export async function loadFieldLabels(host: string, projectKey: string, issueTypeId: string):
   Promise<Record<string, string>> {
-  const key = fieldLabelKey(projectKey, issueTypeId);
+  const key = fieldLabelKey(host, projectKey, issueTypeId);
   try {
     const res = await chrome.storage.local.get(key);
     return (res[key] as Record<string, string>) ?? {};
@@ -278,21 +255,23 @@ export async function loadFieldLabels(projectKey: string, issueTypeId: string):
 }
 
 async function doSetHiddenFields(
+  host: string,
   projectKey: string | null,
   issueTypeId: string,
   deduped: string[]
 ): Promise<PrefsStore> {
   // Same gateway guard as doToggleField: never seed a bucket for an
   // 'unknown'/not-ready issueTypeId.
-  if (!isKnownIssueType(issueTypeId)) {
+  if (!isWritableScope(host, projectKey, issueTypeId)) {
     return loadPrefs();
   }
+  const resolvedProjectKey = projectKey as string;
 
-  const resolvedProjectKey = projectKey ?? '*';
   const store = await loadPrefs();
-  const key = makePrefKey(resolvedProjectKey, issueTypeId);
+  const key = makePrefKey(host, resolvedProjectKey, issueTypeId);
 
   const updatedPref: Pref = {
+    host,
     projectKey: resolvedProjectKey,
     issueTypeId,
     hiddenFieldIds: deduped,
@@ -333,24 +312,100 @@ function enqueueWrite<T>(fn: () => Promise<T>): Promise<T> {
  * clobber each other.
  */
 export async function setHiddenFields(
+  host: string,
   projectKey: string | null,
   issueTypeId: string,
   fieldIds: string[]
 ): Promise<void> {
   const deduped = [...new Set(fieldIds)];
   if (deduped.length === 0) {
-    await clearPref(projectKey, issueTypeId);
+    await clearPref(host, projectKey, issueTypeId);
     return;
   }
 
-  await enqueueWrite(() => doSetHiddenFields(projectKey, issueTypeId, deduped));
+  await enqueueWrite(() => doSetHiddenFields(host, projectKey, issueTypeId, deduped));
 }
 
 export function toggleField(
+  host: string,
   projectKey: string | null,
   issueTypeId: string,
   fieldId: string,
   hidden: boolean
 ): Promise<PrefsStore> {
-  return enqueueWrite(() => doToggleField(projectKey, issueTypeId, fieldId, hidden));
+  return enqueueWrite(() => doToggleField(host, projectKey, issueTypeId, fieldId, hidden));
+}
+
+let activationsWriteChain: Promise<unknown> = Promise.resolve();
+
+export async function loadActivations(): Promise<ActivationStore> {
+  const result = await chrome.storage.sync.get(ACTIVATIONS_STORAGE_KEY);
+  return (result[ACTIVATIONS_STORAGE_KEY] as ActivationStore | undefined) ?? {};
+}
+
+export async function isActivated(host: string, projectKey: string | null): Promise<boolean> {
+  if (!projectKey) return false;
+  const store = await loadActivations();
+  return store[makeScopeKey(host, projectKey)] === true;
+}
+
+// ponytail: separate serialization chain from writeQueue's
+// issuedWriteSeq/committedWriteSeq — those counters exist solely so
+// content-entry.ts can detect a stale onChanged event relative to its own
+// rapid-fire toggleField/setHiddenFields calls on the PREFS key. Activations
+// only ever come from the popup, are never rapid-fire, and live on a
+// different storage key entirely — hanging them on that chain would let an
+// in-flight field toggle swallow an activation re-render.
+export function setActivated(host: string, projectKey: string, active: boolean): Promise<void> {
+  if (!host || !projectKey) return Promise.resolve();
+  const result = activationsWriteChain.then(async () => {
+    const store = await loadActivations();
+    const key = makeScopeKey(host, projectKey);
+    const updated = { ...store };
+    if (active) {
+      updated[key] = true;
+    } else {
+      delete updated[key];
+    }
+    await chrome.storage.sync.set({ [ACTIVATIONS_STORAGE_KEY]: updated });
+  });
+  activationsWriteChain = result.catch(() => undefined);
+  return result;
+}
+
+/** Mirrors onPrefsChanged but for the separate activations key. */
+export function onActivationsChanged(cb: (store: ActivationStore) => void): () => void {
+  const listener = (
+    changes: { [key: string]: chrome.storage.StorageChange },
+    areaName: string
+  ): void => {
+    if (areaName !== 'sync' || !(ACTIVATIONS_STORAGE_KEY in changes)) {
+      return;
+    }
+    cb((changes[ACTIVATIONS_STORAGE_KEY].newValue as ActivationStore | undefined) ?? {});
+  };
+  chrome.storage.onChanged.addListener(listener);
+  return () => chrome.storage.onChanged.removeListener(listener);
+}
+
+const LEGACY_LOCAL_KEY_PREFIXES = [
+  'jfv-field-labels:v1:',
+  'jfv-tab-fields:v1:',
+  'jfv-section-fields:v1:',
+];
+
+/**
+ * One-shot cleanup of pre-v3 storage: discards legacy sync prefs keys and
+ * the now-orphaned local field-label/tab/section caches. Never touches
+ * PREFS_STORAGE_KEY, SETTINGS_STORAGE_KEY or ACTIVATIONS_STORAGE_KEY.
+ */
+export async function dropLegacyPrefs(): Promise<void> {
+  await chrome.storage.sync.remove(LEGACY_PREFS_KEYS);
+  const allLocal = await chrome.storage.local.get(null);
+  const staleKeys = Object.keys(allLocal).filter((k) =>
+    LEGACY_LOCAL_KEY_PREFIXES.some((prefix) => k.startsWith(prefix))
+  );
+  if (staleKeys.length > 0) {
+    await chrome.storage.local.remove(staleKeys);
+  }
 }

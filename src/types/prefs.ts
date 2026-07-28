@@ -27,6 +27,16 @@ export function fieldLabelKey(host: string, projectKey: string, issueTypeId: str
   return `jfv-field-labels:v2:${host}:${projectKey}:${issueTypeId}`;
 }
 
+/** Storage-local key holding the tab-fields cache for a host+project+issueType combo. */
+export function tabCacheKey(host: string, projectKey: string, issueTypeId: string): string {
+  return `jfv-tab-fields:v2:${host}:${projectKey}:${issueTypeId}`;
+}
+
+/** Storage-local key holding the section-fields cache for a host+project+issueType combo. */
+export function sectionCacheKey(host: string, projectKey: string, issueTypeId: string): string {
+  return `jfv-section-fields:v2:${host}:${projectKey}:${issueTypeId}`;
+}
+
 export const PREFS_STORAGE_KEY = 'jiraFieldVisibility:v3';
 export const ACTIVATIONS_STORAGE_KEY = 'jiraFieldVisibility:activations:v1';
 

@@ -13,6 +13,7 @@ export interface GetFieldsResponse {
   onIssuePage: boolean;
   issueTypeId: string;
   projectKey: string | null;
+  host: string;
   fields: PopupFieldInfo[];
 }
 

@@ -11,8 +11,18 @@
 
 import { getIssueType, getIssueRoot, watchIssueContext } from '../lib/jira-context-resolver';
 import { listFields, listPanels, listTabs, listSections, listUndetectedCandidates } from '../lib/field-registry';
-import { getPref, onPrefsChanged, getWriteSeqStatus, waitForWritesToSettle, loadSettings, onSettingsChanged } from '../lib/storage-service';
-import { makePrefKey, fieldLabelKey } from '../types/prefs';
+import {
+  getPref,
+  onPrefsChanged,
+  getWriteSeqStatus,
+  waitForWritesToSettle,
+  loadSettings,
+  onSettingsChanged,
+  loadActivations,
+  onActivationsChanged,
+} from '../lib/storage-service';
+import { makePrefKey, makeScopeKey, fieldLabelKey, tabCacheKey, sectionCacheKey } from '../types/prefs';
+import type { ActivationStore } from '../types/prefs';
 import { computeVisibilityDiff, computeHiddenSelectors, computeHiddenTabs, computeHiddenSections, syncHiddenStylesheet, writeHiddenAttr } from '../lib/visibility-engine';
 import { mountFieldToggle } from '../lib/ui-overlay';
 import { observeRoot, markOwnMutation } from '../lib/dom-observer';
@@ -39,6 +49,46 @@ function listAll(root?: ParentNode): FieldMeta[] {
 let currentIssueTypeId: string = 'unknown';
 /** Current project key (e.g. 'CSM'), null when no issue is active. Updated by watchIssueContext. */
 let currentProjectKey: string | null = null;
+/** Current site hostname (lowercase), updated by watchIssueContext. */
+let currentHost: string = '';
+
+/** In-memory cache of the activations store, kept in sync via onActivationsChanged. */
+let activations: ActivationStore = {};
+
+/**
+ * Whether the current host+project scope has been explicitly activated
+ * ("Hier aktivieren") — the single gate checked at the top of render().
+ */
+let isActive = false;
+
+function recomputeActive(): void {
+  isActive =
+    !!currentHost &&
+    !!currentProjectKey &&
+    activations[makeScopeKey(currentHost, currentProjectKey)] === true;
+}
+
+/**
+ * Reverts every page mutation render() may have made: stylesheet rules,
+ * data-jfv-hidden attributes, and mounted toggle buttons. Called whenever
+ * isActive is false so deactivating a scope (or navigating into one that was
+ * never activated) takes effect immediately, without a reload. Idempotent —
+ * safe to call repeatedly on an already-clean page.
+ */
+function teardownPageEffects(): void {
+  syncHiddenStylesheet([]);
+  markOwnMutation(() => {
+    for (const node of Array.from(document.querySelectorAll('[data-jfv-hidden="true"]'))) {
+      node.removeAttribute('data-jfv-hidden');
+    }
+    for (const cleanup of fieldToggleMap.values()) {
+      try { cleanup(); } catch {}
+    }
+    fieldToggleMap.clear();
+  });
+  knownHiddenTabTestIds.clear();
+  knownHiddenSectionTestIds.clear();
+}
 
 /**
  * Persists which tab data-testid values are known to be hidden (all their
@@ -133,8 +183,13 @@ function syncHiddenFieldIdsCache(fieldId: string, hidden: boolean): void {
  */
 async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<void> {
   try {
+    if (!isActive) {
+      teardownPageEffects();
+      return;
+    }
     const issueTypeId = currentIssueTypeId;
     const projectKey = currentProjectKey;
+    const host = currentHost;
     const hiddenSet = currentHiddenFieldIds;
 
     // Tearing down/remounting toggle buttons and the panel mutates the same
@@ -193,7 +248,7 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
         mapUpdated = true;
       }
       if (mapUpdated && projectKey) {
-        const tabKey = `jfv-tab-fields:v1:${projectKey}:${issueTypeId}`;
+        const tabKey = tabCacheKey(host, projectKey, issueTypeId);
         chrome.storage.local.set({ [tabKey]: tabFieldMap }).catch(() => {});
       }
 
@@ -207,7 +262,7 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
         }
       }
       if (labelUpdated && projectKey) {
-        const labelKey = fieldLabelKey(projectKey, issueTypeId);
+        const labelKey = fieldLabelKey(host, projectKey, issueTypeId);
         chrome.storage.local.set({ [labelKey]: labelById }).catch(() => {});
       }
 
@@ -253,7 +308,7 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
         }
       }
       if (sectionMapUpdated && projectKey) {
-        const sectionKey = `jfv-section-fields:v1:${projectKey}:${issueTypeId}`;
+        const sectionKey = sectionCacheKey(host, projectKey, issueTypeId);
         chrome.storage.local.set({ [sectionKey]: sectionFieldMap }).catch(() => {});
       }
 
@@ -365,7 +420,7 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
         for (const field of fields) {
           fieldToggleMap.set(
             field.containerNode,
-            mountFieldToggle(field, projectKey, issueTypeId, hiddenSet.has(field.id), syncHiddenFieldIdsCache)
+            mountFieldToggle(host, field, projectKey, issueTypeId, hiddenSet.has(field.id), syncHiddenFieldIdsCache)
           );
         }
       } else {
@@ -406,7 +461,7 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
           if (!fieldToggleMap.has(field.containerNode) && !userIsEditing && onIssuePage) {
             fieldToggleMap.set(
               field.containerNode,
-              mountFieldToggle(field, projectKey, issueTypeId, hiddenSet.has(field.id), syncHiddenFieldIdsCache)
+              mountFieldToggle(host, field, projectKey, issueTypeId, hiddenSet.has(field.id), syncHiddenFieldIdsCache)
             );
           }
         }
@@ -427,11 +482,11 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
 async function loadHiddenFieldIdsAndRender(): Promise<void> {
   try {
     if (currentProjectKey) {
-      const tabKey = `jfv-tab-fields:v1:${currentProjectKey}:${currentIssueTypeId}`;
-      const sectionKey = `jfv-section-fields:v1:${currentProjectKey}:${currentIssueTypeId}`;
-      const labelKey = fieldLabelKey(currentProjectKey, currentIssueTypeId);
+      const tabKey = tabCacheKey(currentHost, currentProjectKey, currentIssueTypeId);
+      const sectionKey = sectionCacheKey(currentHost, currentProjectKey, currentIssueTypeId);
+      const labelKey = fieldLabelKey(currentHost, currentProjectKey, currentIssueTypeId);
       const [pref, local] = await Promise.all([
-        getPref(currentProjectKey, currentIssueTypeId),
+        getPref(currentHost, currentProjectKey, currentIssueTypeId),
         chrome.storage.local.get([tabKey, sectionKey, labelKey]),
       ]);
       currentHiddenFieldIds = new Set(pref.hiddenFieldIds);
@@ -439,7 +494,7 @@ async function loadHiddenFieldIdsAndRender(): Promise<void> {
       sectionFieldMap = (local[sectionKey] as Record<string, string[]>) ?? {};
       labelById = (local[labelKey] as Record<string, string>) ?? {};
     } else {
-      const pref = await getPref(currentProjectKey, currentIssueTypeId);
+      const pref = await getPref(currentHost, currentProjectKey, currentIssueTypeId);
       currentHiddenFieldIds = new Set(pref.hiddenFieldIds);
       tabFieldMap = {};
       sectionFieldMap = {};
@@ -471,11 +526,35 @@ function init(): void {
   const ctx = getIssueType();
   currentIssueTypeId = ctx.issueTypeId;
   currentProjectKey = ctx.projectKey;
+  currentHost = ctx.host;
   onIssuePage = ctx.issueKey !== null;
-  if (onIssuePage) {
-    void loadHiddenFieldIdsAndRender();
-  }
 
+  // isActive stays false until this resolves, so the page is left untouched
+  // (render()'s gate is a no-op teardown) for the async gap by construction.
+  void loadActivations().then((a) => {
+    activations = a;
+    recomputeActive();
+    if (onIssuePage) void loadHiddenFieldIdsAndRender();
+  });
+
+  // Mandatory sibling to onPrefsChanged: activation writes land on a
+  // different storage key (ACTIVATIONS_STORAGE_KEY), so onPrefsChanged's
+  // PREFS_STORAGE_KEY-scoped listener never fires for them. Without this,
+  // "Hier aktivieren"/"Hier deaktivieren" from the popup would need a reload
+  // to take effect on an already-open tab.
+  onActivationsChanged((a) => {
+    activations = a;
+    recomputeActive();
+    if (isActive) {
+      void loadHiddenFieldIdsAndRender();
+    } else {
+      void render([]);
+    }
+  });
+
+  // Not gated on isActive: its only CSS effect keys off the [data-jfv-host]
+  // attribute, which is set exclusively inside the gated mountFieldToggle,
+  // so toggling this class is a no-op when the extension is inactive.
   void loadSettings().then((settings) => {
     showFieldButtons = settings.showFieldButtons;
     markOwnMutation(() => document.body.classList.toggle('jfv-debug', !!settings.debugOutline));
@@ -530,7 +609,9 @@ function init(): void {
   watchIssueContext((ctx) => {
     currentIssueTypeId = ctx.issueTypeId;
     currentProjectKey = ctx.projectKey;
+    currentHost = ctx.host;
     onIssuePage = ctx.issueKey !== null;
+    recomputeActive();
     if (onIssuePage) {
       void loadHiddenFieldIdsAndRender();
     } else {
@@ -559,7 +640,13 @@ function init(): void {
             }
           }
         }
-        sendResponse({ onIssuePage, issueTypeId: currentIssueTypeId, projectKey: currentProjectKey, fields });
+        sendResponse({
+          onIssuePage,
+          issueTypeId: currentIssueTypeId,
+          projectKey: currentProjectKey,
+          host: currentHost,
+          fields,
+        });
       }
     }
   );
@@ -567,6 +654,10 @@ function init(): void {
   let settling = false;
 
   onPrefsChanged((store) => {
+    // A write from another tab/context on a scope this tab isn't activated
+    // for must not wake this tab up.
+    if (!isActive) return;
+
     // A rapid local click sequence issues several toggleField writes that
     // are serialized but resolve one at a time; each commit fires its own
     // onChanged event. An event landing while a NEWER local write is still
@@ -611,7 +702,7 @@ function init(): void {
     }
 
     if (!currentProjectKey) return;
-    const pref = store[makePrefKey(currentProjectKey, currentIssueTypeId)];
+    const pref = store[makePrefKey(currentHost, currentProjectKey, currentIssueTypeId)];
     currentHiddenFieldIds = new Set(pref?.hiddenFieldIds ?? []);
     const fresh = onIssuePage ? listAll(getIssueRoot()) : [];
     void render(fresh);

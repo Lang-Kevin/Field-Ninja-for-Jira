@@ -40,6 +40,7 @@ const EYE_CLOSED_GLYPH = '\u{1F648}'; // 🙈
  * completes sees the new state instead of reverting this optimistic write.
  */
 function commitFieldVisibility(
+  host: string,
   field: FieldMeta,
   projectKey: string | null,
   issueTypeId: string,
@@ -48,7 +49,7 @@ function commitFieldVisibility(
 ): void {
   applyFieldVisibility(field, hidden);
   onCommit?.(field.id, hidden);
-  void persistFieldVisibility(projectKey, issueTypeId, field.id, hidden).catch((err) => {
+  void persistFieldVisibility(host, projectKey, issueTypeId, field.id, hidden).catch((err) => {
     // Best-effort persistence; visual state already reflects user intent,
     // but log so a real failure (e.g. quota exceeded) isn't fully silent.
     console.error('[jfv] failed to persist field visibility', err);
@@ -68,6 +69,7 @@ function toggleButtonLabel(fieldLabel: string, hidden: boolean): string {
  * Returns a cleanup function that removes the injected control.
  */
 export function mountFieldToggle(
+  host: string,
   field: FieldMeta,
   projectKey: string | null,
   issueTypeId: string,
@@ -91,7 +93,7 @@ export function mountFieldToggle(
 
   button.addEventListener('click', () => {
     hidden = !hidden;
-    commitFieldVisibility(field, projectKey, issueTypeId, hidden, onCommit);
+    commitFieldVisibility(host, field, projectKey, issueTypeId, hidden, onCommit);
     markOwnMutation(() => {
       button.setAttribute('aria-label', toggleButtonLabel(field.label, hidden));
       button.textContent = hidden ? EYE_CLOSED_GLYPH : EYE_OPEN_GLYPH;
@@ -105,9 +107,11 @@ export function mountFieldToggle(
   // participates in the container's own layout flow (e.g. gets pushed below
   // the field by flex/grid wrapping) — that requires the container itself to
   // be a positioning context, so a static container is promoted to relative.
+  let promotedPosition = false;
   markOwnMutation(() => {
     if (getComputedStyle(field.containerNode).position === 'static') {
       field.containerNode.style.position = 'relative';
+      promotedPosition = true;
     }
     field.containerNode.setAttribute('data-jfv-host', '');
     field.containerNode.appendChild(button);
@@ -117,6 +121,9 @@ export function mountFieldToggle(
     markOwnMutation(() => {
       button.remove();
       field.containerNode.removeAttribute('data-jfv-host');
+      if (promotedPosition) {
+        field.containerNode.style.removeProperty('position');
+      }
     });
   };
 }

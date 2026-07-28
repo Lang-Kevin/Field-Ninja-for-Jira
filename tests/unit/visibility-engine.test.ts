@@ -34,7 +34,7 @@ beforeEach(() => {
   (globalThis as any).chrome = { storage: { sync: mockStorage } };
 });
 
-import { computeVisibilityDiff, applyVisibility, toggleField } from '../../src/lib/visibility-engine';
+import { computeVisibilityDiff, toggleField } from '../../src/lib/visibility-engine';
 import { PREFS_STORAGE_KEY } from '../../src/types/prefs';
 import type { FieldMeta } from '../../src/types/field-meta';
 
@@ -156,69 +156,5 @@ describe('toggleField', () => {
     toggleField(field, true);
 
     expect(isHidden(field.containerNode)).toBe(false);
-  });
-});
-
-describe('applyVisibility', () => {
-  it('hides only the current issueType\'s hidden fields, leaving others visible (per-issueType isolation)', async () => {
-    mockStorage._seed({
-      [PREFS_STORAGE_KEY]: {
-        '*:TYPE_A': { projectKey: '*', issueTypeId: 'TYPE_A', hiddenFieldIds: ['f1'] },
-        '*:TYPE_B': { projectKey: '*', issueTypeId: 'TYPE_B', hiddenFieldIds: ['f2'] },
-      },
-    });
-
-    const f1 = makeField('f1', false); // hidden under TYPE_A
-    const f2 = makeField('f2', false); // hidden under TYPE_B, but NOT under TYPE_A — must stay visible
-
-    await applyVisibility(null, 'TYPE_A', [f1, f2]);
-    await flushRaf();
-
-    expect(isHidden(f1.containerNode)).toBe(true);
-    expect(isHidden(f2.containerNode)).toBe(false); // not hidden under TYPE_A's prefs
-  });
-
-  it('applies TYPE_B prefs independently when called for TYPE_B', async () => {
-    mockStorage._seed({
-      [PREFS_STORAGE_KEY]: {
-        '*:TYPE_A': { projectKey: '*', issueTypeId: 'TYPE_A', hiddenFieldIds: ['f1'] },
-        '*:TYPE_B': { projectKey: '*', issueTypeId: 'TYPE_B', hiddenFieldIds: ['f2'] },
-      },
-    });
-
-    const f1 = makeField('f1', false);
-    const f2 = makeField('f2', false);
-
-    await applyVisibility(null, 'TYPE_B', [f1, f2]);
-    await flushRaf();
-
-    expect(isHidden(f2.containerNode)).toBe(true);
-    expect(isHidden(f1.containerNode)).toBe(false); // not hidden under TYPE_B's prefs
-  });
-
-  it('treats a rejected storage read as "nothing hidden" rather than throwing', async () => {
-    mockStorage.get.mockImplementationOnce(() => Promise.reject(new Error('storage unavailable')));
-
-    const f1 = makeField('f1', false);
-
-    await expect(applyVisibility(null, 'TYPE_A', [f1])).resolves.toBeUndefined();
-    await flushRaf();
-
-    expect(isHidden(f1.containerNode)).toBe(false); // nothing hidden, no throw
-  });
-
-  it('is a no-op (no scheduled write) when no field needs to change', async () => {
-    mockStorage._seed({
-      [PREFS_STORAGE_KEY]: {
-        '*:TYPE_A': { projectKey: '*', issueTypeId: 'TYPE_A', hiddenFieldIds: [] },
-      },
-    });
-
-    const f1 = makeField('f1', false); // already visible, desired visible — no diff
-
-    await applyVisibility(null, 'TYPE_A', [f1]);
-    await flushRaf();
-
-    expect(isHidden(f1.containerNode)).toBe(false);
   });
 });

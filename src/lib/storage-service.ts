@@ -4,7 +4,6 @@ import {
   PREFS_STORAGE_KEY_V1,
   SETTINGS_STORAGE_KEY,
   DEFAULT_SETTINGS,
-  DEFAULT_PROJECT_KEY,
   makePrefKey,
   fieldLabelKey,
 } from '../types/prefs';
@@ -39,9 +38,10 @@ export function migrateIfNeeded(raw: unknown): PrefsStore {
   if (keys.length > 0 && keys.some((k) => !k.includes(':'))) {
     const migrated: PrefsStore = {};
     for (const [issueTypeId, pref] of Object.entries(obj)) {
-      const compositeKey = makePrefKey(DEFAULT_PROJECT_KEY, issueTypeId);
+      // ponytail: migration is removed in the next step
+      const compositeKey = makePrefKey('*', issueTypeId);
       migrated[compositeKey] = {
-        projectKey: DEFAULT_PROJECT_KEY,
+        projectKey: '*',
         issueTypeId,
         hiddenFieldIds: (pref as { hiddenFieldIds?: string[] }).hiddenFieldIds ?? [],
       };
@@ -91,17 +91,14 @@ export async function savePrefs(store: PrefsStore): Promise<void> {
 
 /**
  * Returns the pref for a project+issueType combo.
- * Null projectKey is coerced to DEFAULT_PROJECT_KEY ('*') at this boundary.
- * Falls back to wildcard bucket `*:${issueTypeId}` when no exact entry exists.
+ * Null projectKey is coerced to '*' at this boundary.
  */
 export async function getPref(projectKey: string | null, issueTypeId: string): Promise<Pref> {
-  const resolvedProjectKey = projectKey ?? DEFAULT_PROJECT_KEY;
+  const resolvedProjectKey = projectKey ?? '*';
   const store = await loadPrefs();
   const exactKey = makePrefKey(resolvedProjectKey, issueTypeId);
-  const wildcardKey = makePrefKey(DEFAULT_PROJECT_KEY, issueTypeId);
   return (
     store[exactKey] ??
-    store[wildcardKey] ??
     { projectKey: resolvedProjectKey, issueTypeId, hiddenFieldIds: [] }
   );
 }
@@ -113,7 +110,7 @@ export async function clearPrefs(): Promise<void> {
 
 /** Deletes the pref for a single project+issueType combo. */
 export async function clearPref(projectKey: string | null, issueTypeId: string): Promise<void> {
-  const resolvedProjectKey = projectKey ?? DEFAULT_PROJECT_KEY;
+  const resolvedProjectKey = projectKey ?? '*';
   const store = await loadPrefs();
   const key = makePrefKey(resolvedProjectKey, issueTypeId);
   if (!(key in store)) return;
@@ -194,14 +191,11 @@ async function doToggleField(
     return loadPrefs();
   }
 
-  const resolvedProjectKey = projectKey ?? DEFAULT_PROJECT_KEY;
+  const resolvedProjectKey = projectKey ?? '*';
   const store = await loadPrefs();
 
-  // Seed the new bucket from fallback resolution (exact → wildcard → empty)
-  // so the first toggle in a project inherits the wildcard/default set, then diverges.
   const exactKey = makePrefKey(resolvedProjectKey, issueTypeId);
-  const wildcardKey = makePrefKey(DEFAULT_PROJECT_KEY, issueTypeId);
-  const seed = store[exactKey] ?? store[wildcardKey] ?? { projectKey: resolvedProjectKey, issueTypeId, hiddenFieldIds: [] };
+  const seed = store[exactKey] ?? { projectKey: resolvedProjectKey, issueTypeId, hiddenFieldIds: [] };
 
   const hiddenSet = new Set(seed.hiddenFieldIds);
   if (hidden) {
@@ -294,7 +288,7 @@ async function doSetHiddenFields(
     return loadPrefs();
   }
 
-  const resolvedProjectKey = projectKey ?? DEFAULT_PROJECT_KEY;
+  const resolvedProjectKey = projectKey ?? '*';
   const store = await loadPrefs();
   const key = makePrefKey(resolvedProjectKey, issueTypeId);
 

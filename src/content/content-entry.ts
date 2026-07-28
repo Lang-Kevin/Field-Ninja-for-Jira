@@ -12,7 +12,7 @@
 import { getIssueType, getIssueRoot, watchIssueContext } from '../lib/jira-context-resolver';
 import { listFields, listPanels, listTabs, listSections, listUndetectedCandidates } from '../lib/field-registry';
 import { getPref, onPrefsChanged, getWriteSeqStatus, waitForWritesToSettle, loadSettings, onSettingsChanged } from '../lib/storage-service';
-import { makePrefKey, fieldLabelKey, DEFAULT_PROJECT_KEY } from '../types/prefs';
+import { makePrefKey, fieldLabelKey } from '../types/prefs';
 import { computeVisibilityDiff, computeHiddenSelectors, computeHiddenTabs, computeHiddenSections, syncHiddenStylesheet, writeHiddenAttr } from '../lib/visibility-engine';
 import { mountFieldToggle } from '../lib/ui-overlay';
 import { observeRoot, markOwnMutation } from '../lib/dom-observer';
@@ -142,15 +142,15 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
     // mount calls would re-trigger observeRoot's callback and render again,
     // forever (the toggle button that was just clicked never settles).
     //
-    // Visibility is applied synchronously from hiddenSet here (not via
-    // visibility-engine's applyVisibility, which re-reads storage itself and
-    // defers its write via requestAnimationFrame) — an async, deferred write
-    // racing a rapid sequence of clicks' own synchronous writes is exactly
-    // the bug a prior session traced rapid-toggling.test.ts's flakiness to:
-    // a stale corrective write landing after the click sequence had already
-    // settled the DOM correctly. hiddenSet is already this render's source
-    // of truth (see currentHiddenFieldIds doc above), so no storage read is
-    // needed here at all.
+    // Visibility is applied synchronously from hiddenSet here rather than by
+    // re-reading storage and deferring the write via requestAnimationFrame —
+    // an async, deferred write racing a rapid sequence of clicks' own
+    // synchronous writes is exactly the bug a prior session traced
+    // rapid-toggling.test.ts's flakiness to: a stale corrective write landing
+    // after the click sequence had already settled the DOM correctly.
+    // hiddenSet is already this render's source of truth (see
+    // currentHiddenFieldIds doc above), so no storage read is needed here at
+    // all.
     // Stylesheet sync is keyed on Jira's own stable attributes (data-testid/id),
     // not on anything this script writes onto a node — so it still hides a
     // field's replacement container the instant Jira recreates it during
@@ -185,7 +185,6 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
     // their panels are lazy-removed by Jira so we can't re-evaluate them.
     if (fields.length > 0 || tabs.length > 0) {
       // Update map for currently visible panels, save so reload can re-derive
-      const tabKey = `jfv-tab-fields:v1:${projectKey ?? DEFAULT_PROJECT_KEY}:${issueTypeId}`;
       let mapUpdated = false;
       for (const tab of tabs) {
         const testId = tab.tabNode.getAttribute('data-testid');
@@ -193,11 +192,13 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
         tabFieldMap[testId] = fields.filter(f => tab.panelNode.contains(f.containerNode)).map(f => f.id);
         mapUpdated = true;
       }
-      if (mapUpdated) chrome.storage.local.set({ [tabKey]: tabFieldMap }).catch(() => {});
+      if (mapUpdated && projectKey) {
+        const tabKey = `jfv-tab-fields:v1:${projectKey}:${issueTypeId}`;
+        chrome.storage.local.set({ [tabKey]: tabFieldMap }).catch(() => {});
+      }
 
       // Persist field-id→label cache so hidden fields lazy-removed by Jira
       // (in collapsed sections / inactive tabs) can still be named in the popup.
-      const labelKey = fieldLabelKey(projectKey ?? DEFAULT_PROJECT_KEY, issueTypeId);
       let labelUpdated = false;
       for (const field of fields) {
         if (field.label && labelById[field.id] !== field.label) {
@@ -205,7 +206,10 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
           labelUpdated = true;
         }
       }
-      if (labelUpdated) chrome.storage.local.set({ [labelKey]: labelById }).catch(() => {});
+      if (labelUpdated && projectKey) {
+        const labelKey = fieldLabelKey(projectKey, issueTypeId);
+        chrome.storage.local.set({ [labelKey]: labelById }).catch(() => {});
+      }
 
       // Re-derive from map (covers inactive tabs whose panels aren't in DOM)
       knownHiddenTabTestIds.clear();
@@ -235,7 +239,6 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
     // Same persistence pattern for collapsible sections: fields are lazy-rendered
     // only when expanded, so we can't evaluate "all hidden" while collapsed.
     if (fields.length > 0 || sections.length > 0) {
-      const sectionKey = `jfv-section-fields:v1:${projectKey ?? DEFAULT_PROJECT_KEY}:${issueTypeId}`;
       let sectionMapUpdated = false;
       // Compute live field membership once; reused for both map update and override.
       const liveSectionFields = new Map<string, FieldMeta[]>();
@@ -249,7 +252,10 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
           sectionMapUpdated = true;
         }
       }
-      if (sectionMapUpdated) chrome.storage.local.set({ [sectionKey]: sectionFieldMap }).catch(() => {});
+      if (sectionMapUpdated && projectKey) {
+        const sectionKey = `jfv-section-fields:v1:${projectKey}:${issueTypeId}`;
+        chrome.storage.local.set({ [sectionKey]: sectionFieldMap }).catch(() => {});
+      }
 
       knownHiddenSectionTestIds.clear();
       for (const [testId, fieldIds] of Object.entries(sectionFieldMap)) {
@@ -419,18 +425,26 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
  * rescan (see module doc below for the race this avoids).
  */
 async function loadHiddenFieldIdsAndRender(): Promise<void> {
-  const tabKey = `jfv-tab-fields:v1:${currentProjectKey ?? DEFAULT_PROJECT_KEY}:${currentIssueTypeId}`;
-  const sectionKey = `jfv-section-fields:v1:${currentProjectKey ?? DEFAULT_PROJECT_KEY}:${currentIssueTypeId}`;
-  const labelKey = fieldLabelKey(currentProjectKey ?? DEFAULT_PROJECT_KEY, currentIssueTypeId);
   try {
-    const [pref, local] = await Promise.all([
-      getPref(currentProjectKey, currentIssueTypeId),
-      chrome.storage.local.get([tabKey, sectionKey, labelKey]),
-    ]);
-    currentHiddenFieldIds = new Set(pref.hiddenFieldIds);
-    tabFieldMap = (local[tabKey] as Record<string, string[]>) ?? {};
-    sectionFieldMap = (local[sectionKey] as Record<string, string[]>) ?? {};
-    labelById = (local[labelKey] as Record<string, string>) ?? {};
+    if (currentProjectKey) {
+      const tabKey = `jfv-tab-fields:v1:${currentProjectKey}:${currentIssueTypeId}`;
+      const sectionKey = `jfv-section-fields:v1:${currentProjectKey}:${currentIssueTypeId}`;
+      const labelKey = fieldLabelKey(currentProjectKey, currentIssueTypeId);
+      const [pref, local] = await Promise.all([
+        getPref(currentProjectKey, currentIssueTypeId),
+        chrome.storage.local.get([tabKey, sectionKey, labelKey]),
+      ]);
+      currentHiddenFieldIds = new Set(pref.hiddenFieldIds);
+      tabFieldMap = (local[tabKey] as Record<string, string[]>) ?? {};
+      sectionFieldMap = (local[sectionKey] as Record<string, string[]>) ?? {};
+      labelById = (local[labelKey] as Record<string, string>) ?? {};
+    } else {
+      const pref = await getPref(currentProjectKey, currentIssueTypeId);
+      currentHiddenFieldIds = new Set(pref.hiddenFieldIds);
+      tabFieldMap = {};
+      sectionFieldMap = {};
+      labelById = {};
+    }
   } catch {
     currentHiddenFieldIds = new Set();
     tabFieldMap = {};
@@ -596,7 +610,8 @@ function init(): void {
       return;
     }
 
-    const pref = store[makePrefKey(currentProjectKey ?? DEFAULT_PROJECT_KEY, currentIssueTypeId)];
+    if (!currentProjectKey) return;
+    const pref = store[makePrefKey(currentProjectKey, currentIssueTypeId)];
     currentHiddenFieldIds = new Set(pref?.hiddenFieldIds ?? []);
     const fresh = onIssuePage ? listAll(getIssueRoot()) : [];
     void render(fresh);

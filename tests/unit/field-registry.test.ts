@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect, afterEach } from 'vitest';
-import { listFields, listPanels } from '../../src/lib/field-registry';
+import { listFields, listPanels, listUndetectedCandidates } from '../../src/lib/field-registry';
 
 function loadFixtureIntoDom(fileName: string): void {
   const html = fs.readFileSync(
@@ -225,5 +225,95 @@ describe('listPanels', () => {
     for (const panel of panels) {
       expect(panel.node).toBe(panel.containerNode);
     }
+  });
+});
+
+describe('listUndetectedCandidates', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('returns only labeled blocks outside every detected container, resolving testid from the nearest ancestor', () => {
+    document.body.innerHTML = `
+      <div id="detected" data-testid="issue-field-priority">
+        <label>Priority</label>
+        <span>High</span>
+      </div>
+      <div id="undetected" data-testid="mystery-block">
+        <label>Mystery Field</label>
+        <span>Some value</span>
+      </div>
+    `;
+
+    const detectedContainer = document.getElementById('detected')!;
+    const candidates = listUndetectedCandidates(document.body, [detectedContainer]);
+
+    const labelTexts = candidates.map((c) => c.labelText);
+    expect(labelTexts).not.toContain('Priority');
+    expect(labelTexts).toContain('Mystery Field');
+
+    const mystery = candidates.find((c) => c.labelText === 'Mystery Field');
+    expect(mystery?.testid).toBe('mystery-block');
+  });
+
+  it('skips sortable-chrome candidates (SORTABLE_CHROME_EXCLUDE_SELECTOR)', () => {
+    document.body.innerHTML = `
+      <div data-testid="sortable-item-list">
+        <label>Excluded Chrome Field</label>
+      </div>
+    `;
+
+    const candidates = listUndetectedCandidates(document.body, []);
+    expect(candidates.map((c) => c.labelText)).not.toContain('Excluded Chrome Field');
+  });
+
+  it('skips global-nav candidates (GLOBAL_NAV_EXCLUDE_SELECTOR)', () => {
+    document.body.innerHTML = `
+      <div aria-label="Sidebar">
+        <label>Nav Field</label>
+      </div>
+    `;
+
+    const candidates = listUndetectedCandidates(document.body, []);
+    expect(candidates.map((c) => c.labelText)).not.toContain('Nav Field');
+  });
+
+  it('skips child-issues panel candidates (CHILD_ISSUES_EXCLUDE_SELECTOR)', () => {
+    document.body.innerHTML = `
+      <div data-testid="child-issues-panel">
+        <label>Child Field</label>
+      </div>
+    `;
+
+    const candidates = listUndetectedCandidates(document.body, []);
+    expect(candidates.map((c) => c.labelText)).not.toContain('Child Field');
+  });
+
+  it('detects a heading-only candidate via FIELD_HEADING_SELECTOR', () => {
+    document.body.innerHTML = `
+      <div data-testid="mystery-block">
+        <span data-component-selector="field-heading-x">Empty Field Heading</span>
+      </div>
+    `;
+
+    const candidates = listUndetectedCandidates(document.body, []);
+    const heading = candidates.find((c) => c.labelText === 'Empty Field Heading');
+    expect(heading).toBeDefined();
+    expect(heading?.testid).toBe('mystery-block');
+  });
+
+  it('dedupes candidates that resolve to the same testid + labelText', () => {
+    document.body.innerHTML = `
+      <div data-testid="dup-block">
+        <label>Duplicate Field</label>
+      </div>
+      <div data-testid="dup-block">
+        <label>Duplicate Field</label>
+      </div>
+    `;
+
+    const candidates = listUndetectedCandidates(document.body, []);
+    const dupes = candidates.filter((c) => c.labelText === 'Duplicate Field');
+    expect(dupes).toHaveLength(1);
   });
 });

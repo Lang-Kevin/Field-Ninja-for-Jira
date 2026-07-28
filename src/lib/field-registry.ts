@@ -427,6 +427,60 @@ export function listFields(root?: ParentNode): FieldMeta[] {
 }
 
 /**
+ * Discovery helper (not used in the main scan/apply path): finds labeled
+ * blocks within `root` that fall outside every already-detected container in
+ * `detectedContainers` — candidates listFields/listPanels may be missing.
+ * Read-only; never mutates the DOM. Skips the same layout-chrome exclude
+ * selectors as the main scan.
+ */
+export function listUndetectedCandidates(
+  root: ParentNode = document,
+  detectedContainers: Element[]
+): { testid: string | null; labelText: string }[] {
+  let candidates: Element[] = [];
+  try {
+    candidates = Array.from(root.querySelectorAll(`${LABEL_SELECTOR}, ${FIELD_HEADING_SELECTOR}`));
+  } catch {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const result: { testid: string | null; labelText: string }[] = [];
+
+  for (const el of candidates) {
+    try {
+      if (el.closest(SORTABLE_CHROME_EXCLUDE_SELECTOR)) {
+        continue;
+      }
+      if (el.closest(GLOBAL_NAV_EXCLUDE_SELECTOR)) {
+        continue;
+      }
+      if (el.closest(CHILD_ISSUES_EXCLUDE_SELECTOR)) {
+        continue;
+      }
+      const isDetected = detectedContainers.some(
+        (c) => c === el || c.contains(el)
+      );
+      if (isDetected) {
+        continue;
+      }
+      const labelText = el.textContent?.trim() ?? '';
+      const testid = el.closest('[data-testid]')?.getAttribute('data-testid') ?? null;
+      const key = `${testid ?? ''} ${labelText}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      result.push({ testid, labelText });
+    } catch {
+      continue;
+    }
+  }
+
+  return result;
+}
+
+/**
  * Query `root` (defaults to `document`) for tab buttons (e.g. "Key Details")
  * using the standard ARIA tabs pattern: `role="tab"` paired with its panel
  * via `aria-controls` -> matching element id. Provisional like the rest of

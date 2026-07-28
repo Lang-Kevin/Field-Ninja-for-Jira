@@ -46,8 +46,11 @@ import {
   clearPrefs,
   migrateIfNeeded,
   loadFieldLabels,
+  setHiddenFields,
+  loadSettings,
+  saveSettings,
 } from '../../src/lib/storage-service';
-import { PREFS_STORAGE_KEY, PREFS_STORAGE_KEY_V1, makePrefKey, fieldLabelKey } from '../../src/types/prefs';
+import { PREFS_STORAGE_KEY, PREFS_STORAGE_KEY_V1, makePrefKey, fieldLabelKey, DEFAULT_PROJECT_KEY } from '../../src/types/prefs';
 
 describe('toggleField', () => {
   it('adds fieldId to a fresh issueTypeId hiddenFieldIds when hidden: true', async () => {
@@ -319,6 +322,41 @@ describe('clearPref', () => {
   });
 });
 
+describe('setHiddenFields', () => {
+  it('dedupes duplicate fieldIds into a single entry each, in a single write', async () => {
+    const setSpy = vi.spyOn(mockStorage, 'set');
+    await setHiddenFields('*', 'TYPE_A', ['field1', 'field1', 'field2']);
+    const store = await loadPrefs();
+    const key = makePrefKey('*', 'TYPE_A');
+    expect(store[key].hiddenFieldIds.sort()).toEqual(['field1', 'field2']);
+    expect(setSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('coerces a null projectKey to DEFAULT_PROJECT_KEY', async () => {
+    await setHiddenFields(null, 'TYPE_A', ['field1']);
+    const store = await loadPrefs();
+    const key = makePrefKey(DEFAULT_PROJECT_KEY, 'TYPE_A');
+    expect(store[key]).toEqual({ projectKey: DEFAULT_PROJECT_KEY, issueTypeId: 'TYPE_A', hiddenFieldIds: ['field1'] });
+  });
+
+  it('clears the pref when given an empty array', async () => {
+    await toggleField('*', 'TYPE_A', 'field1', true);
+    await setHiddenFields('*', 'TYPE_A', []);
+    const store = await loadPrefs();
+    expect(store[makePrefKey('*', 'TYPE_A')]).toBeUndefined();
+  });
+
+  it('writes the given hiddenFieldIds list in one savePrefs call', async () => {
+    const setSpy = vi.spyOn(mockStorage, 'set');
+    await setHiddenFields('CSM', 'TYPE_A', ['fieldA', 'fieldB']);
+
+    const store = await loadPrefs();
+    const key = makePrefKey('CSM', 'TYPE_A');
+    expect(store[key]).toEqual({ projectKey: 'CSM', issueTypeId: 'TYPE_A', hiddenFieldIds: ['fieldA', 'fieldB'] });
+    expect(setSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('loadFieldLabels', () => {
   let mockLocalStorage: ReturnType<typeof createMockChromeStorage>;
 
@@ -347,6 +385,17 @@ describe('loadFieldLabels', () => {
 
     const labels = await loadFieldLabels('CSM', 'TYPE_A');
     expect(labels).toEqual({});
+  });
+});
+
+describe('saveSettings', () => {
+  it('merges a partial write, preserving other settings fields', async () => {
+    await saveSettings({ showFieldButtons: false });
+    await saveSettings({ debugOutline: true });
+
+    const settings = await loadSettings();
+    expect(settings.showFieldButtons).toBe(false);
+    expect(settings.debugOutline).toBe(true);
   });
 });
 

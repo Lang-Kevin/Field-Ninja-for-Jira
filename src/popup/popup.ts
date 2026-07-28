@@ -1,9 +1,12 @@
-import { clearPrefs, loadSettings, saveSettings, toggleField } from '../lib/storage-service';
+import { clearPrefs, loadSettings, saveSettings, setHiddenFields, toggleField } from '../lib/storage-service';
 import type { GetFieldsResponse } from '../types/messages';
 
 const SHOW_BUTTONS_CHECKBOX_ID = 'show-buttons-checkbox';
+const DEBUG_OUTLINE_CHECKBOX_ID = 'debug-outline-checkbox';
 const FIELD_LIST_ID = 'field-list';
 const RESET_ALL_BUTTON_ID = 'reset-all-button';
+const HIDE_ALL_BUTTON_ID = 'hide-all-button';
+const SHOW_ALL_BUTTON_ID = 'show-all-button';
 
 async function getActiveTabFields(): Promise<GetFieldsResponse | undefined> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -18,7 +21,17 @@ async function getActiveTabFields(): Promise<GetFieldsResponse | undefined> {
   }
 }
 
+let latestResponse: GetFieldsResponse | undefined;
+
 function renderFields(response: GetFieldsResponse | undefined): void {
+  latestResponse = response;
+
+  const hideAllButton = document.getElementById(HIDE_ALL_BUTTON_ID) as HTMLButtonElement | null;
+  const showAllButton = document.getElementById(SHOW_ALL_BUTTON_ID) as HTMLButtonElement | null;
+  const disabled = !response?.onIssuePage;
+  if (hideAllButton) hideAllButton.disabled = disabled;
+  if (showAllButton) showAllButton.disabled = disabled;
+
   const container = document.getElementById(FIELD_LIST_ID);
   if (!container) {
     return;
@@ -61,12 +74,23 @@ async function init(): Promise<void> {
   const showButtonsCheckbox = document.getElementById(
     SHOW_BUTTONS_CHECKBOX_ID
   ) as HTMLInputElement | null;
-  if (showButtonsCheckbox) {
+  const debugOutlineCheckbox = document.getElementById(
+    DEBUG_OUTLINE_CHECKBOX_ID
+  ) as HTMLInputElement | null;
+  if (showButtonsCheckbox || debugOutlineCheckbox) {
     const settings = await loadSettings();
-    showButtonsCheckbox.checked = settings.showFieldButtons;
-    showButtonsCheckbox.addEventListener('change', () => {
-      void saveSettings({ showFieldButtons: showButtonsCheckbox.checked });
-    });
+    if (showButtonsCheckbox) {
+      showButtonsCheckbox.checked = settings.showFieldButtons;
+      showButtonsCheckbox.addEventListener('change', () => {
+        void saveSettings({ showFieldButtons: showButtonsCheckbox.checked });
+      });
+    }
+    if (debugOutlineCheckbox) {
+      debugOutlineCheckbox.checked = settings.debugOutline;
+      debugOutlineCheckbox.addEventListener('change', () => {
+        void saveSettings({ debugOutline: debugOutlineCheckbox.checked });
+      });
+    }
   }
 
   renderFields(await getActiveTabFields());
@@ -79,6 +103,38 @@ async function init(): Promise<void> {
     void clearPrefs().then(async () => {
       renderFields(await getActiveTabFields());
     });
+  });
+
+  const hideAllButton = document.getElementById(HIDE_ALL_BUTTON_ID) as HTMLButtonElement | null;
+  hideAllButton?.addEventListener('click', () => {
+    void (async () => {
+      if (!latestResponse?.onIssuePage) {
+        return;
+      }
+      const { issueTypeId, projectKey, fields } = latestResponse;
+      try {
+        await setHiddenFields(
+          projectKey,
+          issueTypeId,
+          fields.map((f) => f.id)
+        );
+      } catch {
+        alert('Zu viele Felder fürs Sync-Kontingent…');
+      }
+      renderFields(await getActiveTabFields());
+    })();
+  });
+
+  const showAllButton = document.getElementById(SHOW_ALL_BUTTON_ID) as HTMLButtonElement | null;
+  showAllButton?.addEventListener('click', () => {
+    void (async () => {
+      if (!latestResponse?.onIssuePage) {
+        return;
+      }
+      const { issueTypeId, projectKey } = latestResponse;
+      await setHiddenFields(projectKey, issueTypeId, []);
+      renderFields(await getActiveTabFields());
+    })();
   });
 }
 

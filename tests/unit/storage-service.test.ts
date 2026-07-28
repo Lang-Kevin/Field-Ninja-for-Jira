@@ -50,7 +50,7 @@ import {
   loadSettings,
   saveSettings,
 } from '../../src/lib/storage-service';
-import { PREFS_STORAGE_KEY, PREFS_STORAGE_KEY_V1, makePrefKey, fieldLabelKey, DEFAULT_PROJECT_KEY } from '../../src/types/prefs';
+import { PREFS_STORAGE_KEY, PREFS_STORAGE_KEY_V1, makePrefKey, fieldLabelKey } from '../../src/types/prefs';
 
 describe('toggleField', () => {
   it('adds fieldId to a fresh issueTypeId hiddenFieldIds when hidden: true', async () => {
@@ -92,32 +92,6 @@ describe('toggleField', () => {
     expect(store[keyB].hiddenFieldIds).not.toContain('field1');
     expect(store[keyB].hiddenFieldIds.length).toBe(1);
   });
-
-  it('new project bucket inherits wildcard hidden set, then diverges', async () => {
-    // Set up wildcard bucket with field1 hidden
-    await toggleField('*', 'TYPE_A', 'field1', true);
-
-    // First toggle in CSM project — should inherit field1 from wildcard, add field2
-    const result = await toggleField('CSM', 'TYPE_A', 'field2', true);
-
-    const wildcardKey = makePrefKey('*', 'TYPE_A');
-    const csmKey = makePrefKey('CSM', 'TYPE_A');
-
-    // CSM bucket inherits field1 from wildcard and adds field2
-    expect(result[csmKey].hiddenFieldIds).toContain('field1');
-    expect(result[csmKey].hiddenFieldIds).toContain('field2');
-    expect(result[csmKey].projectKey).toBe('CSM');
-
-    // Wildcard bucket is unchanged
-    expect(result[wildcardKey].hiddenFieldIds).toEqual(['field1']);
-  });
-
-  it('coerces null projectKey to wildcard', async () => {
-    const result = await toggleField(null, 'TYPE_A', 'field1', true);
-    const key = makePrefKey('*', 'TYPE_A');
-    expect(result[key]).toBeDefined();
-    expect(result[key].projectKey).toBe('*');
-  });
 });
 
 describe('getPref', () => {
@@ -133,39 +107,6 @@ describe('getPref', () => {
     await toggleField('CSM', 'TYPE_A', 'field1', true);
     const pref = await getPref('CSM', 'TYPE_A');
     expect(pref.projectKey).toBe('CSM');
-    expect(pref.hiddenFieldIds).toContain('field1');
-  });
-
-  it('falls back to wildcard entry when no exact entry exists', async () => {
-    // Only a wildcard bucket exists
-    await toggleField('*', 'TYPE_A', 'fieldW', true);
-    // Ask for ITSM project — no exact entry, should fall back to wildcard
-    const pref = await getPref('ITSM', 'TYPE_A');
-    expect(pref.hiddenFieldIds).toContain('fieldW');
-  });
-
-  it('exact entry takes precedence over wildcard', async () => {
-    await toggleField('*', 'TYPE_A', 'wildcardField', true);
-    // CSM project has diverged — only has exactField
-    await toggleField('CSM', 'TYPE_A', 'exactField', true);
-    const wildcardKey = makePrefKey('*', 'TYPE_A');
-    // But the inherit-then-diverge means CSM also inherits wildcardField
-    // Let's test with a clean scenario: write stores directly
-    const store = await loadPrefs();
-    // Override CSM entry to have only exactField (simulating diverged state)
-    await savePrefs({
-      ...store,
-      [makePrefKey('CSM', 'TYPE_A')]: { projectKey: 'CSM', issueTypeId: 'TYPE_A', hiddenFieldIds: ['exactField'] },
-    });
-
-    const pref = await getPref('CSM', 'TYPE_A');
-    expect(pref.hiddenFieldIds).toEqual(['exactField']);
-    expect(pref.hiddenFieldIds).not.toContain('wildcardField');
-  });
-
-  it('coerces null projectKey to wildcard', async () => {
-    await toggleField('*', 'TYPE_A', 'field1', true);
-    const pref = await getPref(null, 'TYPE_A');
     expect(pref.hiddenFieldIds).toContain('field1');
   });
 });
@@ -332,11 +273,11 @@ describe('setHiddenFields', () => {
     expect(setSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('coerces a null projectKey to DEFAULT_PROJECT_KEY', async () => {
+  it("coerces a null projectKey to '*'", async () => {
     await setHiddenFields(null, 'TYPE_A', ['field1']);
     const store = await loadPrefs();
-    const key = makePrefKey(DEFAULT_PROJECT_KEY, 'TYPE_A');
-    expect(store[key]).toEqual({ projectKey: DEFAULT_PROJECT_KEY, issueTypeId: 'TYPE_A', hiddenFieldIds: ['field1'] });
+    const key = makePrefKey('*', 'TYPE_A');
+    expect(store[key]).toEqual({ projectKey: '*', issueTypeId: 'TYPE_A', hiddenFieldIds: ['field1'] });
   });
 
   it('clears the pref when given an empty array', async () => {

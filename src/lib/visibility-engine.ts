@@ -25,9 +25,7 @@
  * the point).
  */
 
-import { getPref } from './storage-service';
 import { markOwnMutation } from './dom-observer';
-import { isKnownIssueType } from './jira-context-resolver';
 import type { FieldMeta, TabMeta } from '../types/field-meta';
 
 export interface VisibilityDiffEntry {
@@ -51,8 +49,7 @@ const HIDDEN_ATTR = 'data-jfv-hidden';
  * outright, so there's no race to lose. Protected fields (e.g. Summary,
  * Status) are always resolved to visible, even if their id is present in
  * hiddenFieldIds — this is the single enforcement point for "protected
- * fields are never hidden", since both applyVisibility and toggleField route
- * through this function.
+ * fields are never hidden", since toggleField routes through this function.
  */
 export function computeVisibilityDiff(
   fields: FieldMeta[],
@@ -210,62 +207,6 @@ export function syncHiddenStylesheet(selectors: string[]): void {
   if (styleEl.textContent !== text) {
     styleEl.textContent = text;
   }
-}
-
-/**
- * Loads prefs for `issueTypeId` via storage-service, computes the idempotent
- * diff via `computeVisibilityDiff`, and applies only the necessary writes
- * inside a single `requestAnimationFrame` callback, wrapped in
- * `markOwnMutation`.
- *
- * Defensive: a rejected prefs load is treated as "nothing hidden" (empty
- * hidden set) rather than throwing, matching this project's existing
- * defensive-coding pattern (see jira-context-resolver.ts).
- *
- * Per-issue-type isolation: only ever reads/applies prefs for the specific
- * `issueTypeId` passed in.
- */
-export async function applyVisibility(
-  projectKey: string | null,
-  issueTypeId: string,
-  fields: FieldMeta[]
-): Promise<void> {
-  // Issue type not yet resolved — skip reading/writing prefs entirely so we
-  // never create a bogus 'unknown' bucket in PrefsStore; leave DOM as-is.
-  if (!isKnownIssueType(issueTypeId)) {
-    return;
-  }
-
-  let hiddenFieldIds: string[] = [];
-  try {
-    const pref = await getPref(projectKey, issueTypeId);
-    hiddenFieldIds = pref.hiddenFieldIds;
-  } catch {
-    // Treat load failure as "nothing hidden".
-    hiddenFieldIds = [];
-  }
-
-  const hiddenSet = new Set(hiddenFieldIds);
-
-  // Synchronous, not rAF-deferred: this is just a <style> text write (cheap,
-  // no layout thrash) and closing the gap fast is the whole point — see
-  // getStableSelector's doc comment for why this is the part that actually
-  // survives Jira's virtualized re-renders, unlike the attribute write below.
-  syncHiddenStylesheet(computeHiddenSelectors(fields, hiddenSet));
-
-  const diff = computeVisibilityDiff(fields, hiddenSet);
-
-  if (diff.length === 0) {
-    return;
-  }
-
-  requestAnimationFrame(() => {
-    markOwnMutation(() => {
-      for (const entry of diff) {
-        writeHiddenAttr(entry.field.containerNode, entry.desiredHidden);
-      }
-    });
-  });
 }
 
 /**

@@ -7,7 +7,6 @@ import {
   getPref,
 } from '../lib/storage-service';
 import type { Pref, PrefsStore } from '../types/prefs';
-import { DEFAULT_PROJECT_KEY } from '../types/prefs';
 
 const PREFS_LIST_ID = 'prefs-list';
 const CLEAR_ALL_BTN_ID = 'clear-all-btn';
@@ -94,12 +93,7 @@ async function doRender(store: PrefsStore): Promise<void> {
     grouped.get(key)!.push(pref);
   }
 
-  // '*' (default bucket) first, then alphabetical by project key.
-  const sortedProjectKeys = [...grouped.keys()].sort((a, b) => {
-    if (a === DEFAULT_PROJECT_KEY) return -1;
-    if (b === DEFAULT_PROJECT_KEY) return 1;
-    return a.localeCompare(b);
-  });
+  const sortedProjectKeys = [...grouped.keys()].sort((a, b) => a.localeCompare(b));
 
   for (const projectKey of sortedProjectKeys) {
     const group = document.createElement('div');
@@ -107,10 +101,7 @@ async function doRender(store: PrefsStore): Promise<void> {
 
     const heading = document.createElement('h2');
     heading.className = 'jfv-project-heading';
-    heading.textContent =
-      projectKey === DEFAULT_PROJECT_KEY
-        ? 'All projects (default)'
-        : `Project: ${projectKey}`;
+    heading.textContent = `Project: ${projectKey}`;
     group.appendChild(heading);
 
     for (const pref of grouped.get(projectKey)!) {
@@ -125,13 +116,9 @@ async function doRender(store: PrefsStore): Promise<void> {
       resetBtn.type = 'button';
       resetBtn.className = 'jfv-clear-btn';
       resetBtn.textContent = 'Reset';
-      const projectLabel =
-        projectKey === DEFAULT_PROJECT_KEY
-          ? 'all projects (default)'
-          : projectKey;
       resetBtn.setAttribute(
         'aria-label',
-        `Reset hidden fields for ${pref.issueTypeId} in ${projectLabel}`
+        `Reset hidden fields for ${pref.issueTypeId} in ${projectKey}`
       );
       resetBtn.addEventListener('click', () => {
         void handleClearOne(pref.projectKey, pref.issueTypeId);
@@ -157,7 +144,7 @@ async function doRender(store: PrefsStore): Promise<void> {
         unhideBtn.textContent = '✕';
         unhideBtn.setAttribute(
           'aria-label',
-          `Un-hide ${fieldLabel.textContent} for ${titleize(pref.issueTypeId)} in ${projectLabel}`
+          `Un-hide ${fieldLabel.textContent} for ${titleize(pref.issueTypeId)} in ${projectKey}`
         );
         unhideBtn.addEventListener('click', () => {
           void handleUnhideOne(pref, fieldId);

@@ -81,6 +81,28 @@ describe('SPA navigation (watchIssueContext + re-render)', () => {
         expect(updatedLabels.some((l) => l.includes('Story Points'))).toBe(
           false
         );
+
+        // SPA navigation into a project that was never seeded as activated
+        // (setup.ts only seeds 'localhost:TEST' / 'localhost:EPIC') must hit
+        // content-entry.ts's activation gate and tear the toggles back down.
+        await page.evaluate(() => {
+          history.pushState({}, '', '/browse/OTHER-1');
+        });
+
+        // watchIssueContext polls every 300ms (debounced); wait past that.
+        await new Promise((resolve) => setTimeout(resolve, 800));
+
+        const toggleCount = await page.$$eval(
+          '.jfv-field-toggle',
+          (buttons) => buttons.length
+        );
+        expect(toggleCount).toBe(0);
+
+        const hiddenAttrCount = await page.$$eval(
+          '[data-jfv-hidden]',
+          (elements) => elements.length
+        );
+        expect(hiddenAttrCount).toBe(0);
       } finally {
         await page.close();
       }

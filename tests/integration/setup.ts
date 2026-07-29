@@ -8,8 +8,6 @@ import { startFixtureServer, type FixtureServerHandle } from '../fixtures/fixtur
 // auto-inject content.js on the localhost fixture server. Rather than widen
 // the shipped manifest's host_permissions (a real scope regression), copy
 // dist/ to a temp dir with a test-only manifest that also matches localhost.
-// Icons are stripped too since icons/*.png don't exist yet (Wave 8 manual step)
-// and an unpacked load can warn/fail on a missing icon file.
 function buildTestExtensionDir(fixtureOrigin: string): string {
   const distDir = path.resolve(__dirname, '../../dist');
   const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jfv-ext-'));
@@ -24,7 +22,6 @@ function buildTestExtensionDir(fixtureOrigin: string): string {
     ...manifest.content_scripts[0].matches,
     `${fixtureOrigin}/*`,
   ];
-  delete manifest.icons;
   fs.writeFileSync(path.join(testDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
 
   return testDir;
@@ -48,6 +45,32 @@ export async function launchExtension(): Promise<ExtensionTestContext> {
       `--load-extension=${extensionDir}`,
     ],
   });
+
+  // ponytail: content-entry.ts's render() gates on site-scoped activation
+  // (src/types/prefs.ts's ACTIVATIONS_STORAGE_KEY / makeScopeKey). Seed the
+  // scopes the fixtures navigate to so the real gate runs instead of being
+  // bypassed. Keys mirror `${host}:${projectKey}` — host is the resolver's
+  // location.hostname ('localhost', no port), not a literal string import
+  // since this test file doesn't resolve src/ imports.
+  const swTarget = await browser.waitForTarget((t) => t.type() === 'service_worker');
+  const extId = new URL(swTarget.url()).host;
+  const seed = await browser.newPage();
+  await seed.goto(`chrome-extension://${extId}/popup.html`);
+  await seed.evaluate(() =>
+    chrome.storage.sync.set({
+      'jiraFieldVisibility:activations:v1': {
+        // 'localhost:TEST' — /browse/TEST-1 default fixtureUrl() (most tests)
+        'localhost:TEST': true,
+        // 'localhost:EPIC' — fixtures navigating to /browse/EPIC-*
+        'localhost:EPIC': true,
+        // 'localhost:DEV' — board-late-testid.test.ts and
+        // board-late-panel-icons.test.ts, which cold-load a board URL with
+        // ?selectedIssue=DEV-119113 (no /browse/ path)
+        'localhost:DEV': true,
+      },
+    })
+  );
+  await seed.close();
 
   return {
     browser,

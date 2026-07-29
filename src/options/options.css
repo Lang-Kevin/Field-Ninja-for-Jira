@@ -101,7 +101,8 @@ h1 {
   word-break: break-word;
 }
 
-.jfv-unhide-btn {
+.jfv-unhide-btn,
+.jfv-deactivate-btn {
   font-size: 12px;
   line-height: 1;
   padding: 3px 8px;
@@ -112,6 +113,27 @@ h1 {
   cursor: pointer;
 }
 
-.jfv-unhide-btn:hover {
+.jfv-unhide-btn:hover,
+.jfv-deactivate-btn:hover {
   background-color: #ebecf0;
+}
+
+/* jfv-deactivate-btn and jfv-inactive-marker sit inside .jfv-project-heading,
+   which sets uppercase/letter-spacing/font-weight for the heading text —
+   reset those so the button/marker don't inherit heading styling. */
+.jfv-deactivate-btn {
+  margin-left: 8px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.jfv-inactive-marker {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 400;
+  font-style: italic;
+  text-transform: none;
+  letter-spacing: normal;
+  color: #5e6c84;
 }

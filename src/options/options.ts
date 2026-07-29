@@ -5,8 +5,11 @@ import {
   loadFieldLabels,
   toggleField,
   getPref,
+  loadActivations,
+  setActivated,
 } from '../lib/storage-service';
 import type { Pref, PrefsStore } from '../types/prefs';
+import { makeScopeKey } from '../types/prefs';
 
 const PREFS_LIST_ID = 'prefs-list';
 const CLEAR_ALL_BTN_ID = 'clear-all-btn';
@@ -75,36 +78,82 @@ async function doRender(store: PrefsStore): Promise<void> {
   }
 
   const entries = Object.values(store);
+  const activations = await loadActivations();
 
-  if (entries.length === 0) {
-    const empty = document.createElement('p');
-    empty.textContent = 'No saved preferences yet.';
-    container.appendChild(empty);
-    return;
-  }
-
-  // Group entries by projectKey.
+  // Group entries by the composite host+project scope key.
   const grouped = new Map<string, Pref[]>();
   for (const pref of entries) {
-    const key = pref.projectKey;
+    const key = makeScopeKey(pref.host, pref.projectKey);
     if (!grouped.has(key)) {
       grouped.set(key, []);
     }
     grouped.get(key)!.push(pref);
   }
 
-  const sortedProjectKeys = [...grouped.keys()].sort((a, b) => a.localeCompare(b));
+  // Rendered groups are the union of activated scopes and scopes with prefs
+  // — deactivating a scope deliberately preserves its prefs (see storage-
+  // service.setActivated), so a scope with prefs but no activation is an
+  // expected state, not an orphan.
+  const allScopeKeys = new Set<string>([...grouped.keys(), ...Object.keys(activations)]);
 
-  for (const projectKey of sortedProjectKeys) {
+  if (allScopeKeys.size === 0) {
+    const empty = document.createElement('p');
+    empty.textContent = 'No saved preferences yet.';
+    container.appendChild(empty);
+    return;
+  }
+
+  const sortedScopeKeys = [...allScopeKeys].sort((a, b) => a.localeCompare(b));
+
+  for (const scopeKey of sortedScopeKeys) {
+    // ponytail: malformed-key guard — unreachable under current invariants
+    // (makeScopeKey always includes the delimiter), but skip rather than
+    // render a corrupted heading if one ever slips through.
+    if (!scopeKey.includes(':')) continue;
+
+    const prefsForScope = grouped.get(scopeKey) ?? [];
+    // scopeKey format is `${host}:${projectKey}` (makeScopeKey) — a pref row
+    // is the more reliable source when one exists, since host/projectKey
+    // themselves never contain the delimiter in practice; fall back to
+    // splitting the key for activation-only scopes with no prefs yet.
+    const host = prefsForScope[0]?.host ?? scopeKey.slice(0, scopeKey.indexOf(':'));
+    const projectKey = prefsForScope[0]?.projectKey ?? scopeKey.slice(scopeKey.indexOf(':') + 1);
+    const isActive = activations[scopeKey] === true;
+
     const group = document.createElement('div');
     group.className = 'jfv-project-group';
 
     const heading = document.createElement('h2');
     heading.className = 'jfv-project-heading';
-    heading.textContent = `Project: ${projectKey}`;
+    heading.textContent = `${host} — ${projectKey}`;
     group.appendChild(heading);
 
-    for (const pref of grouped.get(projectKey)!) {
+    if (isActive) {
+      const deactivateBtn = document.createElement('button');
+      deactivateBtn.type = 'button';
+      deactivateBtn.className = 'jfv-deactivate-btn';
+      deactivateBtn.textContent = 'Deaktivieren';
+      deactivateBtn.setAttribute('aria-label', `Deaktivieren für ${host} — ${projectKey}`);
+      deactivateBtn.addEventListener('click', () => {
+        void handleDeactivate(host, projectKey);
+      });
+      heading.appendChild(deactivateBtn);
+    } else {
+      const inactiveMarker = document.createElement('span');
+      inactiveMarker.className = 'jfv-inactive-marker';
+      inactiveMarker.textContent = '(nicht aktiv)';
+      heading.appendChild(inactiveMarker);
+    }
+
+    if (prefsForScope.length === 0) {
+      const empty = document.createElement('p');
+      empty.textContent = 'Keine ausgeblendeten Felder.';
+      group.appendChild(empty);
+      container.appendChild(group);
+      continue;
+    }
+
+    for (const pref of prefsForScope) {
       const row = document.createElement('div');
       row.className = 'jfv-pref-row';
 
@@ -121,7 +170,7 @@ async function doRender(store: PrefsStore): Promise<void> {
         `Reset hidden fields for ${pref.issueTypeId} in ${projectKey}`
       );
       resetBtn.addEventListener('click', () => {
-        void handleClearOne(pref.projectKey, pref.issueTypeId);
+        void handleClearOne(pref.host, pref.projectKey, pref.issueTypeId);
       });
 
       row.appendChild(label);
@@ -129,7 +178,7 @@ async function doRender(store: PrefsStore): Promise<void> {
       group.appendChild(row);
 
       // Per-row lazy label load — one issue type rarely has many rows.
-      const labels = await loadFieldLabels(pref.projectKey, pref.issueTypeId);
+      const labels = await loadFieldLabels(pref.host, pref.projectKey, pref.issueTypeId);
       for (const fieldId of pref.hiddenFieldIds) {
         const subRow = document.createElement('div');
         subRow.className = 'jfv-field-sub-row';
@@ -161,10 +210,11 @@ async function doRender(store: PrefsStore): Promise<void> {
 }
 
 async function handleClearOne(
+  host: string,
   projectKey: string,
   issueTypeId: string
 ): Promise<void> {
-  await clearPref(projectKey, issueTypeId);
+  await clearPref(host, projectKey, issueTypeId);
   const updatedStore = await loadPrefs();
   void render(updatedStore);
 }
@@ -175,12 +225,17 @@ async function handleClearAll(): Promise<void> {
 }
 
 async function handleUnhideOne(pref: Pref, fieldId: string): Promise<void> {
-  await toggleField(pref.projectKey, pref.issueTypeId, fieldId, false);
+  await toggleField(pref.host, pref.projectKey, pref.issueTypeId, fieldId, false);
   // ponytail: drop the now-empty bucket so no 0-field ghost row lingers.
-  const updated = await getPref(pref.projectKey, pref.issueTypeId);
+  const updated = await getPref(pref.host, pref.projectKey, pref.issueTypeId);
   if (updated.hiddenFieldIds.length === 0) {
-    await clearPref(pref.projectKey, pref.issueTypeId);
+    await clearPref(pref.host, pref.projectKey, pref.issueTypeId);
   }
+  void render(await loadPrefs());
+}
+
+async function handleDeactivate(host: string, projectKey: string): Promise<void> {
+  await setActivated(host, projectKey, false);
   void render(await loadPrefs());
 }
 

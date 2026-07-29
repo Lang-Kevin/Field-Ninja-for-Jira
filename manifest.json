@@ -6,7 +6,10 @@
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": ["https://*.atlassian.net/*"],
   "background": { "service_worker": "background.js", "type": "module" },
-  "action": { "default_popup": "popup.html" },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": { "16": "icons/icon16.png", "48": "icons/icon48.png" }
+  },
   "content_scripts": [
     {
       "matches": ["https://*.atlassian.net/browse/*", "https://*.atlassian.net/jira/*"],

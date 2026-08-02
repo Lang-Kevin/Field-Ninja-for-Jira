@@ -19,6 +19,7 @@ const ACTIVATE_BUTTON_ID = 'activate-button';
 const FIELD_LIST_ID = 'field-list';
 const FIELD_BUTTON_ROW_ID = 'field-button-row';
 const RESET_ALL_BUTTON_ID = 'reset-all-button';
+const SETTINGS_BLOCK_ID = 'settings-block';
 const HIDE_ALL_BUTTON_ID = 'hide-all-button';
 const SHOW_ALL_BUTTON_ID = 'show-all-button';
 
@@ -93,6 +94,7 @@ function renderState(state: PopupState, response?: GetFieldsResponse): void {
   const fieldList = document.getElementById(FIELD_LIST_ID);
   const fieldButtonRow = document.getElementById(FIELD_BUTTON_ROW_ID);
   const resetAllButton = document.getElementById(RESET_ALL_BUTTON_ID);
+  const settingsBlock = document.getElementById(SETTINGS_BLOCK_ID);
 
   const showsFields = state === 'S4' || state === 'S5';
   setHidden(statusMessage, true);
@@ -100,6 +102,7 @@ function renderState(state: PopupState, response?: GetFieldsResponse): void {
   setHidden(fieldList, !showsFields);
   setHidden(fieldButtonRow, !showsFields);
   setHidden(resetAllButton, state === 'S0' || state === 'S1');
+  setHidden(settingsBlock, state === 'S0');
 
   switch (state) {
     case 'S0':

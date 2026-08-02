@@ -7,14 +7,16 @@
   </head>
   <body>
     <h1>Field Ninja for Jira</h1>
-    <label class="jfv-popup-row">
-      <input type="checkbox" id="show-buttons-checkbox" />
-      Show hide/unhide buttons on Jira field pages
-    </label>
-    <label class="jfv-popup-row">
-      <input type="checkbox" id="debug-outline-checkbox" />
-      Debug: Felder hervorheben
-    </label>
+    <div id="settings-block" class="jfv-hidden">
+      <label class="jfv-popup-row">
+        <input type="checkbox" id="show-buttons-checkbox" />
+        Show hide/unhide buttons on Jira field pages
+      </label>
+      <label class="jfv-popup-row">
+        <input type="checkbox" id="debug-outline-checkbox" />
+        Debug: Felder hervorheben
+      </label>
+    </div>
     <p id="status-message" class="jfv-popup-empty jfv-hidden"></p>
     <div id="scope-bar" class="jfv-scope-bar jfv-hidden">
       <span id="scope-label" class="jfv-scope-label"></span>

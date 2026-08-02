@@ -110,6 +110,14 @@ try {
   const popupUrl = `chrome-extension://${extId}/popup.html`;
   console.log(`extension id: ${extId}`);
 
+  // The profile is persistent, so chrome.storage.sync survives between runs — a
+  // project activated by an EARLIER run would fail the "second project NOT
+  // auto-activated" check for the wrong reason. Start every run from scratch.
+  const reset = await ctx.newPage();
+  await reset.goto(popupUrl);
+  await reset.evaluate(() => chrome.storage.sync.clear());
+  await reset.close();
+
   const page = ctx.pages()[0] ?? (await ctx.newPage());
 
   // --- project discovery -------------------------------------------------------

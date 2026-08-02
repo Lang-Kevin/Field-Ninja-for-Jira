@@ -57,7 +57,7 @@ export function startFixtureServer(
     // with the actual fixture file named via ?fixture= — lets every test
     // page.goto() straight into a URL the resolver recognizes as an issue
     // page, no extra pushState dance needed.
-    if (pathname.startsWith("/browse/")) {
+    if (pathname.startsWith("/browse/") || pathname === "/issues") {
       const fixtureFile = new URLSearchParams(query ?? "").get("fixture");
       const relativePath = fixtureFile ? `/${fixtureFile}` : "/jira-issue-old-view.html";
       serveFixture(relativePath, res);

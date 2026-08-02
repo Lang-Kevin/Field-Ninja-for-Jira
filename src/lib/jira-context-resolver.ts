@@ -71,12 +71,20 @@ const ISSUE_KEY_SHAPE_REGEX = /^[A-Z][A-Z0-9]*-\d+$/;
 // it in a modal "detail panel" while the board cards stay in the DOM behind it.
 // Every card carries its own issue-type badge + field-ish nodes, so scanning
 // `document` would read the wrong issue type and treat cards as fields. Scope
-// everything to this panel instead. Ordered fallback: a Jira markup change
-// degrades to `document` (full-page behaviour) rather than breaking — confirmed
-// live as `issue.views.issue-details.issue-modal.modal-dialog`.
+// everything to this panel instead. The issue navigator (`/issues?selectedIssue=…`)
+// uses the same query param but has no modal at all — the detail view renders
+// inline as the issue-layout container. Modal selectors are tried first (on
+// boards the modal is the correct, narrower scope; the issue-layout container
+// lives inside it), then the issue-layout container as a fallback for the
+// navigator. Ordered fallback: a Jira markup change degrades to an empty
+// fragment (no fields found) rather than scanning `document` — confirmed live as
+// `issue.views.issue-details.issue-modal.modal-dialog` (board) and
+// `issue.views.issue-details.issue-layout.issue-layout` (issue navigator).
 const ISSUE_DETAIL_PANEL_SELECTORS = [
   '[data-testid="issue.views.issue-details.issue-modal.modal-dialog"]',
   '[data-testid*="issue-modal.modal-dialog"]',
+  '[data-testid="issue.views.issue-details.issue-layout.issue-layout"]',
+  '[data-testid*="issue-details.issue-layout"]',
 ] as const;
 
 /**

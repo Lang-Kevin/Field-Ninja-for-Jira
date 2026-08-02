@@ -246,4 +246,31 @@ describe('board detail-panel scoping', () => {
 
     expect(root.querySelectorAll('*')).toHaveLength(0);
   });
+
+  it('scopes getIssueRoot to the issue-layout container on the /issues navigator (no modal exists there) — regression guard', () => {
+    document.body.innerHTML =
+      '<div data-testid="issue.views.issue-details.issue-layout.issue-layout"><span>Labels</span></div>';
+    setLocation('/issues', '?jql=project%20%3D%20EL&selectedIssue=EL-1');
+
+    const root = getIssueRoot();
+
+    expect((root as Element).getAttribute?.('data-testid')).toBe(
+      'issue.views.issue-details.issue-layout.issue-layout'
+    );
+    expect(root).not.toBe(document);
+  });
+
+  it('prefers the board modal over the issue-layout container when both are present', () => {
+    document.body.innerHTML =
+      '<div data-testid="issue.views.issue-details.issue-modal.modal-dialog">' +
+      '<div data-testid="issue.views.issue-details.issue-layout.issue-layout"><span>Labels</span></div>' +
+      '</div>';
+    setLocation('/jira/software/c/projects/DEV/boards/2040', '?selectedIssue=DEV-119113');
+
+    const root = getIssueRoot();
+
+    expect((root as Element).getAttribute?.('data-testid')).toBe(
+      'issue.views.issue-details.issue-modal.modal-dialog'
+    );
+  });
 });

@@ -66,6 +66,13 @@ describe('projectKey derivation (S3)', () => {
     expect(ctx.projectKey).toBeNull();
     expect(ctx.issueKey).toBeNull();
   });
+
+  it('extracts projectKey and issueKey from ?selectedIssue= on the /issues navigator view', () => {
+    setLocation('/issues', '?jql=project%20%3D%20CSM&selectedIssue=CSM-34153');
+    const ctx = getIssueType();
+    expect(ctx.projectKey).toBe('CSM');
+    expect(ctx.issueKey).toBe('CSM-34153');
+  });
 });
 
 describe('watchIssueContext composite change-detection (S3)', () => {
@@ -140,8 +147,26 @@ describe('isEligibleUrl', () => {
     expect(isEligibleUrl('https://acme.atlassian.net/jira/software/projects/ABC/boards/1')).toBe(true);
   });
 
+  it('accepts an /issues navigator URL with selectedIssue', () => {
+    expect(
+      isEligibleUrl('https://x.atlassian.net/issues?jql=project%20%3D%20CSM&selectedIssue=CSM-34153'),
+    ).toBe(true);
+  });
+
+  it('accepts a plain /issues URL', () => {
+    expect(isEligibleUrl('https://x.atlassian.net/issues')).toBe(true);
+  });
+
   it('rejects a non-jira path on an atlassian.net host', () => {
     expect(isEligibleUrl('https://acme.atlassian.net/wiki/x')).toBe(false);
+  });
+
+  it('rejects an /issues-prefixed path that is not the navigator', () => {
+    expect(isEligibleUrl('https://x.atlassian.net/issuesfoo')).toBe(false);
+  });
+
+  it('accepts /issues/ with a trailing slash', () => {
+    expect(isEligibleUrl('https://x.atlassian.net/issues/')).toBe(true);
   });
 
   it('rejects a suffix-spoofed host', () => {

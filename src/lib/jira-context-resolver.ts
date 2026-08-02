@@ -39,7 +39,12 @@ export function isEligibleUrl(url: string | undefined): boolean {
     const u = new URL(url);
     return (
       u.hostname.endsWith('.atlassian.net') &&
-      (u.pathname.startsWith('/browse/') || u.pathname.startsWith('/jira/'))
+      // Exact '/issues' or '/issues/...' only — gate is deliberately stricter than
+      // the manifest match pattern and the background tabs.query list.
+      (u.pathname.startsWith('/browse/') ||
+        u.pathname.startsWith('/jira/') ||
+        u.pathname === '/issues' ||
+        u.pathname.startsWith('/issues/'))
     );
   } catch {
     return false;

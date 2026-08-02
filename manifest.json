@@ -12,7 +12,11 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://*.atlassian.net/browse/*", "https://*.atlassian.net/jira/*"],
+      "matches": [
+        "https://*.atlassian.net/browse/*",
+        "https://*.atlassian.net/jira/*",
+        "https://*.atlassian.net/issues*"
+      ],
       "js": ["content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"

@@ -74,7 +74,11 @@ async function injectIfMissing(tabId: number): Promise<void> {
 
 async function reinjectContentScript(): Promise<void> {
   const tabsToInject = await chrome.tabs.query({
-    url: ['https://*.atlassian.net/browse/*', 'https://*.atlassian.net/jira/*'],
+    url: [
+      'https://*.atlassian.net/browse/*',
+      'https://*.atlassian.net/jira/*',
+      'https://*.atlassian.net/issues*',
+    ],
   });
   for (const tab of tabsToInject) {
     if (!tab.id) continue;

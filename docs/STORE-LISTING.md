@@ -82,9 +82,15 @@ Suggested captions (optional field in the dashboard):
 
 **Single purpose description**
 
+Paste each block as one paragraph — the line breaks below are for reading only.
+Every field has a 1000-character limit.
+
 ```
 Field Ninja lets a user hide and show individual fields on Jira Cloud issue pages, and
-remembers that choice per issue type. Every part of the extension serves that one purpose.
+remembers that choice per site, project and issue type. Every part of the extension — the
+toggle buttons on the issue view, the popup, and the options page — serves only that
+purpose. Hiding is purely visual and local to the browser: nothing is written back to Jira
+and no data leaves the browser.
 ```
 
 **Permission justifications**
@@ -92,28 +98,38 @@ remembers that choice per issue type. Every part of the extension serves that on
 - `storage`
 
   ```
-  Stores the user's own show/hide choices (one entry per site, project and issue type) so
-  the same fields stay hidden on the next page load. This is the extension's only state.
-  No other data is written and nothing leaves the browser.
+  Stores the user's own show/hide choices — one entry per site, project and issue type —
+  so the same fields stay hidden on the next page load. This is the extension's only
+  persisted state. Nothing else is written, and the data never leaves the user's Chrome
+  profile because the extension has no backend of any kind.
   ```
 
 - `scripting`
 
   ```
-  Injects the extension's own content script and stylesheet into a Jira tab that the user
-  has explicitly activated but where Chrome has not already loaded them — for example a
-  tab that was open before installation, or before the user pressed "Enable here". Used
-  only for the extension's bundled files; no remote code is ever executed.
+  Injects the extension's own bundled content script and stylesheet into a Jira Cloud tab
+  that the user has explicitly activated, in the case where Chrome has not already loaded
+  them — for example a tab that was open before the extension was installed, or before the
+  user pressed "Enable here". Without it those tabs would silently do nothing until a
+  manual reload. Only files shipped inside the extension package are injected; no remote
+  code is ever executed.
   ```
 
 - Host permission `https://*.atlassian.net/*`
 
   ```
-  The extension only works on Jira Cloud, which is served from *.atlassian.net. The
-  content script needs access to that origin to find the field labels and containers on
-  an issue page and to change their visibility. No page content is read beyond the field
-  labels needed to identify a field, and nothing is transmitted anywhere.
+  The extension only works on Jira Cloud, which is always served from *.atlassian.net, so
+  https://*.atlassian.net/* is the narrowest pattern that covers every user's tenant —
+  tenant names are per-customer and cannot be known in advance. The content script needs
+  access to that origin to locate the field labels and containers on an issue page and
+  change their CSS visibility. It reads nothing beyond the label text needed to identify a
+  field, never issue content, comments or attachments, and transmits nothing anywhere. The
+  extension requests no other host.
   ```
+
+**Remote code**: answer **No**. `dist/` contains only the esbuild bundles — no `eval()`,
+no `new Function`, no dynamic `import()`, no external `<script src>` or stylesheet.
+Answering yes here triggers a review the extension does not need.
 
 **Data usage declarations** — none of the categories apply. Check:
 

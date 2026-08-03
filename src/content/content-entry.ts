@@ -57,7 +57,7 @@ let activations: ActivationStore = {};
 
 /**
  * Whether the current host+project scope has been explicitly activated
- * ("Hier aktivieren") — the single gate checked at the top of render().
+ * ("Enable here") — the single gate checked at the top of render().
  */
 let isActive = false;
 
@@ -540,7 +540,7 @@ function init(): void {
   // Mandatory sibling to onPrefsChanged: activation writes land on a
   // different storage key (ACTIVATIONS_STORAGE_KEY), so onPrefsChanged's
   // PREFS_STORAGE_KEY-scoped listener never fires for them. Without this,
-  // "Hier aktivieren"/"Hier deaktivieren" from the popup would need a reload
+  // "Enable here"/"Disable here" from the popup would need a reload
   // to take effect on an already-open tab.
   onActivationsChanged((a) => {
     activations = a;

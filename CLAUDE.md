@@ -5,7 +5,7 @@
 - Runtime: MV3 service worker (background) + content script injected on `*.atlassian.net` issue pages + an options page.
 - Language/build: TypeScript, bundled with esbuild, tested with Vitest (unit) and Puppeteer (integration).
 - Core modules (`src/lib/`): `jira-context-resolver.ts` (detect current issue type, SPA-aware), `field-registry.ts` (enumerate DOM fields), `field-id.ts` (stable cross-render field identification), `storage-service.ts` (per-issue-type prefs in `chrome.storage.sync`), `visibility-engine.ts` (apply show/hide to field containers), `ui-overlay.ts` (toggle UI), `dom-observer.ts` (single shared MutationObserver with self-write suppression).
-- Storage model: a single `chrome.storage.sync` key (`jiraFieldVisibility:v1`) holding `Record<issueTypeId, { issueTypeId, hiddenFieldIds }>` — keeps writes within quota and isolates prefs per issue type.
+- Storage model: a single `chrome.storage.sync` key (`jiraFieldVisibility:v3`) holding `Record<'${host}:${projectKey}:${issueTypeId}', Pref>` — keeps writes within quota and isolates prefs per site, project, and issue type. Older `:v1`/`:v2` keys are legacy and are dropped (never migrated) on install.
 
 **Current build status: see `docs/PLAN.md`** — a checkbox-tracked wave schedule. A new session should read it first and resume from the first unchecked box.
 

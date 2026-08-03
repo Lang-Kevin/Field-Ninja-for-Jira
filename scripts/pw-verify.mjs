@@ -114,10 +114,10 @@ try {
   const popupText = (await popup.locator('body').innerText()).replace(/\s+/g, ' ').trim();
   // Asserts the absence of the S0 copy specifically. An earlier version tested a
   // guessed English phrase and reported PASS on the German S0 text — false green.
-  check('popup is not stuck in S0', !/nicht verfügbar/i.test(popupText), popupText.slice(0, 90));
+  check('popup is not stuck in S0', !/not available on this page/i.test(popupText), popupText.slice(0, 90));
 
   // --- activate via the popup's own button ------------------------------------
-  const activate = popup.locator('button', { hasText: /aktivieren/i }).first();
+  const activate = popup.locator('button', { hasText: /^Enable here$/ }).first();
   const hasButton = (await activate.count()) > 0;
   check('popup offers an activation button', hasButton);
   if (hasButton) {

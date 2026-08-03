@@ -49,7 +49,7 @@ function renderFields(response: GetFieldsResponse): void {
     empty.className = 'jfv-popup-empty';
     empty.textContent = response.onIssuePage
       ? 'No hideable fields found on this page.'
-      : 'Öffne ein Issue, um Felder zu verwalten.';
+      : 'Open an issue to manage its fields.';
     container.appendChild(empty);
     return;
   }
@@ -107,16 +107,16 @@ function renderState(state: PopupState, response?: GetFieldsResponse): void {
   switch (state) {
     case 'S0':
       setHidden(statusMessage, false);
-      if (statusMessage) statusMessage.textContent = 'Auf dieser Webseite nicht verfügbar.';
+      if (statusMessage) statusMessage.textContent = 'Not available on this page.';
       break;
     case 'S1':
       setHidden(statusMessage, false);
-      if (statusMessage) statusMessage.textContent = 'Seite neu laden, um Field Ninja zu aktivieren.';
+      if (statusMessage) statusMessage.textContent = 'Reload the page to enable Field Ninja.';
       break;
     case 'S2':
       setHidden(statusMessage, false);
       if (statusMessage) {
-        statusMessage.textContent = 'Projekt nicht erkannt — öffne ein Issue oder ein Projekt-Board.';
+        statusMessage.textContent = 'No project detected — open an issue or a project board.';
       }
       break;
     case 'S3':
@@ -124,7 +124,7 @@ function renderState(state: PopupState, response?: GetFieldsResponse): void {
       setHidden(scopeBar, false);
       if (scopeLabel) scopeLabel.textContent = `${response.host} · ${response.projectKey}`;
       if (activateButton) {
-        activateButton.textContent = 'Hier aktivieren';
+        activateButton.textContent = 'Enable here';
         activateButton.classList.add('jfv-primary');
         activateButton.onclick = () => void handleActivate(response, true);
       }
@@ -135,10 +135,10 @@ function renderState(state: PopupState, response?: GetFieldsResponse): void {
       setHidden(scopeBar, false);
       if (scopeLabel) {
         scopeLabel.textContent =
-          state === 'S4' ? `Aktiv für ${response.projectKey}` : `${response.host} · ${response.projectKey}`;
+          state === 'S4' ? `Active on ${response.projectKey}` : `${response.host} · ${response.projectKey}`;
       }
       if (activateButton) {
-        activateButton.textContent = 'Hier deaktivieren';
+        activateButton.textContent = 'Disable here';
         activateButton.classList.remove('jfv-primary');
         activateButton.onclick = () => void handleActivate(response, false);
       }
@@ -234,7 +234,7 @@ async function init(): Promise<void> {
           fields.map((f) => f.id)
         );
       } catch {
-        alert('Zu viele Felder fürs Sync-Kontingent…');
+        alert('Too many fields for the sync storage quota.');
       }
       await refresh();
     })();

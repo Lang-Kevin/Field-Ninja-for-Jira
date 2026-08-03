@@ -132,8 +132,8 @@ async function doRender(store: PrefsStore): Promise<void> {
       const deactivateBtn = document.createElement('button');
       deactivateBtn.type = 'button';
       deactivateBtn.className = 'jfv-deactivate-btn';
-      deactivateBtn.textContent = 'Deaktivieren';
-      deactivateBtn.setAttribute('aria-label', `Deaktivieren für ${host} — ${projectKey}`);
+      deactivateBtn.textContent = 'Deactivate';
+      deactivateBtn.setAttribute('aria-label', `Deactivate for ${host} — ${projectKey}`);
       deactivateBtn.addEventListener('click', () => {
         void handleDeactivate(host, projectKey);
       });
@@ -141,13 +141,13 @@ async function doRender(store: PrefsStore): Promise<void> {
     } else {
       const inactiveMarker = document.createElement('span');
       inactiveMarker.className = 'jfv-inactive-marker';
-      inactiveMarker.textContent = '(nicht aktiv)';
+      inactiveMarker.textContent = '(inactive)';
       heading.appendChild(inactiveMarker);
     }
 
     if (prefsForScope.length === 0) {
       const empty = document.createElement('p');
-      empty.textContent = 'Keine ausgeblendeten Felder.';
+      empty.textContent = 'No hidden fields.';
       group.appendChild(empty);
       container.appendChild(group);
       continue;

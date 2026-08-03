@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<!--
+  Issue navigator with an issue opened in the inline detail view
+  (?selectedIssue=…). Unlike the board (jira-board-panel.html), the navigator
+  has NO modal — the result list rows sit beside the detail view in the same
+  document, and each row carries its own field-ish data-testids. The
+  extension must scope to the issue-layout container (confirmed live testid
+  issue.views.issue-details.issue-layout.issue-layout) so the list rows'
+  fields are never picked up as toggle targets.
+-->
+<html>
+<body>
+  <!-- Result list beside the detail view -->
+  <div data-testid="issue-navigator-app.container">
+    <div data-testid="issue-navigator.ui.list.list-view.issue-line-row.DEV-1">
+      <span data-testid="issue-line-card-issue-type.issue-type" aria-label="Bug" title="Bug"></span>
+      <div data-testid="issue-field-priority" aria-label="Priority">High</div>
+    </div>
+    <div data-testid="issue-navigator.ui.list.list-view.issue-line-row.DEV-2">
+      <span data-testid="issue-line-card-issue-type.issue-type" aria-label="Task" title="Task"></span>
+      <div data-testid="issue-field-assignee" aria-label="Assignee">Jane</div>
+    </div>
+  </div>
+
+  <!-- Inline detail view (no modal wrapper) -->
+  <div data-testid="issue.views.issue-details.issue-layout.issue-layout">
+    <button data-testid="issue-view-foundation.noneditable-issue-type.button" aria-label="Story" title="Story"></button>
+    <div data-testid="issue-field-summary" aria-label="Summary">Navigator detail summary</div>
+    <div data-testid="issue-field-description" aria-label="Description">Detail view description</div>
+    <div data-testid="issue-field-components" aria-label="Components">API</div>
+  </div>
+</body>
+</html>

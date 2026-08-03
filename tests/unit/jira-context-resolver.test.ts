@@ -250,7 +250,7 @@ describe('board detail-panel scoping', () => {
   it('scopes getIssueRoot to the issue-layout container on the /issues navigator (no modal exists there) — regression guard', () => {
     document.body.innerHTML =
       '<div data-testid="issue.views.issue-details.issue-layout.issue-layout"><span>Labels</span></div>';
-    setLocation('/issues', '?jql=project%20%3D%20EL&selectedIssue=EL-1');
+    setLocation('/issues', '?jql=project%20%3D%20DEMO&selectedIssue=DEMO-1');
 
     const root = getIssueRoot();
 

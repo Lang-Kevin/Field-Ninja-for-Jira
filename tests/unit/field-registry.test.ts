@@ -207,6 +207,62 @@ describe('listFields labels-row duplicate-button regression', () => {
   });
 });
 
+describe('listFields ownership: a genuine <label> tag belonging to another field must not be borrowed', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('keeps two sibling fields under an unmarked wrapper as separate fields with distinct containers, even when only one has its own real <label> tag', () => {
+    // Field A has no <label> of its own. Field B has a genuine <label> tag.
+    // The shared wrapper has no CONTAINER_MARKER attribute of its own. A
+    // tagName-only genuine-label check accepts Field B's <label> as
+    // "evidence" that the wrapper is Field A's labeled row too, collapsing
+    // both fields onto the same containerNode.
+    document.body.innerHTML = `
+      <div class="wrapper">
+        <div data-testid="issue-field-labels">frontend, urgent</div>
+        <div data-testid="issue-field-components">
+          <label>Components</label>
+        </div>
+      </div>
+    `;
+
+    const fields = listFields(document.body);
+    const labelsField = fields.find((f) => f.node.getAttribute('data-testid') === 'issue-field-labels');
+    const componentsField = fields.find(
+      (f) => f.node.getAttribute('data-testid') === 'issue-field-components'
+    );
+
+    expect(labelsField).toBeDefined();
+    expect(componentsField).toBeDefined();
+    expect(labelsField?.containerNode).not.toBe(componentsField?.containerNode);
+  });
+});
+
+describe('listFields sibling field-testid substring-matches LABEL_SELECTOR', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('keeps two sibling fields under an unmarked dialog wrapper as separate containers (jira-board-panel.html)', () => {
+    loadFixtureIntoDom('jira-board-panel.html');
+
+    const dialog = document.querySelector(
+      '[data-testid="issue.views.issue-details.issue-modal.modal-dialog"]'
+    ) as HTMLElement;
+    const fields = listFields(dialog);
+
+    const labelsField = fields.find((f) => f.node.getAttribute('data-testid') === 'issue-field-labels');
+    const componentsField = fields.find(
+      (f) => f.node.getAttribute('data-testid') === 'issue-field-components'
+    );
+
+    expect(labelsField).toBeDefined();
+    expect(componentsField).toBeDefined();
+    expect(labelsField?.containerNode).not.toBe(componentsField?.containerNode);
+  });
+});
+
 describe('listPanels', () => {
   afterEach(() => {
     document.body.innerHTML = '';

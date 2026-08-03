@@ -30,6 +30,7 @@ function buildTestExtensionDir(fixtureOrigin: string): string {
 export interface ExtensionTestContext {
   browser: Browser;
   fixtureServer: FixtureServerHandle;
+  extensionId: string;
   fixtureUrl: (fileName: string) => string;
   teardown: () => Promise<void>;
 }
@@ -75,6 +76,7 @@ export async function launchExtension(): Promise<ExtensionTestContext> {
   return {
     browser,
     fixtureServer,
+    extensionId: extId,
     // ponytail: route through /browse/<key> so jira-context-resolver.ts's
     // URL gate (onIssuePage) is satisfied on first paint — see
     // fixture-server.ts's /browse/ handling.

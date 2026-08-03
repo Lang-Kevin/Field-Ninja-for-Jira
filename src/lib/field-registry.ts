@@ -165,6 +165,60 @@ const PROTECTED_TESTID_SELECTOR = PROTECTED_TESTID_SUBSTRINGS.map(
 const MAX_CONTAINER_WALK = 6;
 
 /**
+ * Whether a LABEL_SELECTOR match found within `scope` genuinely belongs to
+ * `originNode` — the field whose container/label is currently being
+ * resolved — rather than to some OTHER field nested in the same scope.
+ * Ownership, not tag name, is what matters: even a real `<label>` tag can
+ * belong to a sibling field (e.g. two field wrappers sharing an unmarked
+ * parent). Walk from the label up to (not including) `scope`; if any
+ * ancestor along the way matches FIELD_SELECTOR and ISN'T `originNode`
+ * itself, the label belongs to that other field, not to `originNode`.
+ */
+function isGenuineLabelMatch(labelEl: Element, originNode: Element, scope: Element): boolean {
+  if (labelEl.tagName !== 'LABEL') {
+    try {
+      if (labelEl.matches(FIELD_SELECTOR)) {
+        // A non-<label> LABEL_SELECTOR match (e.g. a `[data-testid*="label"]`
+        // div) that ALSO matches FIELD_SELECTOR is itself a field's own value
+        // node (e.g. "issue-field-labels"), not evidence of a labeled row —
+        // never trust it as anyone's label. A genuine `<label>` tag is exempt
+        // from this check: real Jira testids like "issue.fields.summary-label"
+        // legitimately substring-match FIELD_SELECTOR's "field" token via
+        // "fields", but a <label> element is never itself a field's value
+        // node, so that match is coincidental, not disqualifying. Ownership
+        // for BOTH cases is still decided below by the ancestor walk.
+        return false;
+      }
+    } catch {
+      // Defensively ignore selector errors and fall through to the walk.
+    }
+  }
+  let current: Element | null = labelEl.parentElement;
+  while (current && current !== scope) {
+    try {
+      if (current !== originNode && current.matches(FIELD_SELECTOR)) {
+        return false;
+      }
+    } catch {
+      // Defensively ignore selector errors and keep walking.
+    }
+    current = current.parentElement;
+  }
+  return true;
+}
+
+/** Whether `p` contains at least one genuine label owned by `originNode`. */
+function hasGenuineLabel(p: Element, originNode: Element): boolean {
+  let candidates: Element[];
+  try {
+    candidates = Array.from(p.querySelectorAll(LABEL_SELECTOR));
+  } catch {
+    return false;
+  }
+  return candidates.some((c) => isGenuineLabelMatch(c, originNode, p));
+}
+
+/**
  * Walk up from a given field value-node to find its enclosing "field
  * container" (the full row/section that should be hidden). Checks each
  * ancestor explicitly (`matches()`, not `closest()`) up to
@@ -203,7 +257,7 @@ export function findContainer(node: Element): Element {
       let p: Element | null = node.parentElement;
       for (let i = 0; i < MAX_CONTAINER_WALK && p; i++) {
         try {
-          if (!p.matches(SORTABLE_CHROME_EXCLUDE_SELECTOR) && p.querySelector(LABEL_SELECTOR)) {
+          if (!p.matches(SORTABLE_CHROME_EXCLUDE_SELECTOR) && hasGenuineLabel(p, node)) {
             return p;
           }
         } catch {
@@ -239,7 +293,14 @@ function deriveLabel(el: Element): string {
 
   try {
     const scope = el.parentElement ?? el;
-    const labelEl = scope.querySelector(LABEL_SELECTOR);
+    // Same ownership guard as findContainer's hasGenuineLabel: skip
+    // LABEL_SELECTOR matches that belong to a DIFFERENT field nested in the
+    // same scope (a sibling whose testid happens to substring-match
+    // "label", e.g. "issue-field-labels"), so a field never borrows a
+    // neighboring field's name.
+    const labelEl = Array.from(scope.querySelectorAll(LABEL_SELECTOR)).find(
+      (c) => isGenuineLabelMatch(c, el, scope)
+    );
     const labelText = labelEl?.textContent?.trim();
     if (labelText && labelText.length > 0) {
       return labelText;

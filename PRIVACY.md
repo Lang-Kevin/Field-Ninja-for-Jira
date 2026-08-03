@@ -1,6 +1,6 @@
 # Privacy Policy — Field Ninja for Jira
 
-**Last updated: 2026-06-20**
+**Last updated: 2026-08-03**
 
 Field Ninja for Jira does not collect, transmit, sell, or share any data.
 
@@ -26,7 +26,9 @@ Field Ninja for Jira does not collect, transmit, sell, or share any data.
 
 - `storage` — to save your hide/show preferences locally and sync them
   across your own Chrome profiles.
-- `activeTab` — to let the toolbar icon interact with the current Jira tab.
+- `scripting` — to inject the extension's own content script into a Jira tab
+  you have explicitly activated, when Chrome has not already loaded it (for
+  example on a tab that was open before installation).
 - Host access to `https://*.atlassian.net/*` — the content script only runs
   on Jira Cloud issue pages, where it adjusts the visibility of field
   elements already present in the page DOM.

@@ -6,9 +6,9 @@
 //
 // Usage:
 //   node scripts/pw-real.mjs <host> [PROJ_A] [PROJ_B]
-//   node scripts/pw-real.mjs lynqtech.atlassian.net
-//   node scripts/pw-real.mjs lynqtech.atlassian.net --headed
-//   node scripts/pw-real.mjs lynqtech.atlassian.net --keep
+//   node scripts/pw-real.mjs your-tenant.atlassian.net
+//   node scripts/pw-real.mjs your-tenant.atlassian.net --headed
+//   node scripts/pw-real.mjs your-tenant.atlassian.net --keep
 //
 // Runs headless by default, so it never opens a window on your desktop. Only if
 // the profile holds no Jira session does it open one for a one-time login; the
@@ -18,6 +18,7 @@
 // Requires a fresh build:  npm run build
 import { chromium } from 'playwright-core';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -26,7 +27,10 @@ const PROFILE = path.join(ROOT, '.playwright-jira-profile');
 // Chrome for Testing, not the installed Chrome: 137+ ignores --load-extension and
 // by 151 the escape hatch is gone (see pw-verify.mjs). 150 rather than Puppeteer's
 // default 127 because real Atlassian dislikes ancient browsers.
-const CHROME = 'C:/Users/Kiwi PC/.cache/puppeteer/chrome/win64-150.0.7871.24/chrome-win64/chrome.exe';
+// ponytail: env override, homedir default. Pin the version elsewhere if a second one lands.
+const CHROME =
+  process.env.JFV_CHROME ||
+  path.join(os.homedir(), '.cache/puppeteer/chrome/win64-150.0.7871.24/chrome-win64/chrome.exe');
 
 const argv = process.argv.slice(2);
 const KEEP = argv.includes('--keep');

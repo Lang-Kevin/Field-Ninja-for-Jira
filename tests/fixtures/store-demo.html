@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>DEMO-42 — Field Ninja demo</title>
+  <!--
+    Demo page for the Chrome Web Store screenshots. Deliberately synthetic:
+    fictional tenant, project and people, so no real Jira content is ever
+    published. Field markup mirrors tests/fixtures/jira-issue-new-view.html.
+  -->
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font: 14px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif;
+      color: #172b4d; background: #f7f8f9; margin: 0; padding: 24px 32px;
+    }
+    header { display: flex; align-items: center; gap: 8px; color: #626f86; font-size: 13px; }
+    .type { display: inline-block; width: 16px; height: 16px; border-radius: 3px; background: #4bade8; }
+    h1 { font-size: 24px; margin: 12px 0 20px; }
+    .layout { display: grid; grid-template-columns: 1fr 360px; gap: 28px; align-items: start; }
+    .card { background: #fff; border: 1px solid #dfe1e6; border-radius: 6px; padding: 16px; }
+    .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: #626f86; margin: 0 0 12px; }
+    .field-row { display: grid; grid-template-columns: 130px 1fr; gap: 8px; align-items: center;
+                 padding: 7px 8px; border-radius: 4px; position: relative; }
+    .field-row + .field-row { border-top: 1px solid #f1f2f4; }
+    .field-row label { color: #626f86; font-size: 13px; }
+    .val { color: #172b4d; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 3px; background: #e9f2ff; color: #0055cc; font-size: 12px; }
+    .pill.done { background: #dcfff1; color: #216e4e; }
+    .who { display: inline-flex; align-items: center; gap: 6px; }
+    .avatar { width: 22px; height: 22px; border-radius: 50%; background: #b3bac5; }
+    p.desc { margin: 0 0 10px; }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="type" data-testid="issuetype-icon" aria-label="Story" title="Story"></span>
+    <span>ACME Demo Project / DEMO-42</span>
+  </header>
+  <h1>Checkout: keep the promo code field on the summary step</h1>
+
+  <div class="layout">
+    <div class="card">
+      <h2>Description</h2>
+      <p class="desc">Customers lose the promo code when they step back from payment.
+        Persist the entered code for the length of the session.</p>
+      <p class="desc">Acceptance: code survives back-navigation and page reload.</p>
+      <h2 style="margin-top:20px">Activity</h2>
+      <p class="desc"><strong>Jane Doe</strong> — moved this into Sprint 12.</p>
+      <p class="desc"><strong>Sam Rivera</strong> — reproduced on staging, adding steps.</p>
+      <p class="desc"><strong>Jane Doe</strong> — session storage looks like the smallest fix.</p>
+    </div>
+
+    <div class="card" id="details">
+      <h2>Details</h2>
+
+      <div class="field-row" role="group">
+        <label data-testid="issue.fields.status-label">Status</label>
+        <div class="val" data-testid="issue.fields.status-field"><span class="pill">In Progress</span></div>
+      </div>
+
+      <div class="field-row" role="group">
+        <label data-testid="issue.fields.assignee-label">Assignee</label>
+        <div class="val" data-testid="issue.fields.assignee-field">
+          <span class="who"><span class="avatar"></span>Jane Doe</span>
+        </div>
+      </div>
+
+      <div class="field-row" role="group">
+        <label data-testid="issue.fields.reporter-label">Reporter</label>
+        <div class="val" data-testid="issue.fields.reporter-field">
+          <span class="who"><span class="avatar"></span>Sam Rivera</span>
+        </div>
+      </div>
+
+      <div class="field-row" role="group">
+        <label data-testid="issue.fields.sprint-label">Sprint</label>
+        <div class="val" data-testid="issue.fields.sprint-field">Sprint 12</div>
+      </div>
+
+      <div class="field-row" role="group">
+        <label for="customfield_10003">Story Points</label>
+        <div class="val" id="customfield_10003">5</div>
+      </div>
+
+      <div class="field-row" role="group">
+        <label data-testid="issue.fields.components-label">Components</label>
+        <div class="val" data-testid="issue.fields.components-field"><span class="pill">Checkout</span></div>
+      </div>
+
+      <div class="field-row" role="group">
+        <div class="customfield-priority" aria-label="Priority" style="display:contents">
+          <label>Priority</label>
+          <div class="val">Medium</div>
+        </div>
+      </div>
+
+      <div class="field-row" role="group">
+        <label data-testid="issue.fields.labels-label">Labels</label>
+        <div class="val" data-testid="issue.fields.labels-field"><span class="pill">frontend</span></div>
+      </div>
+
+      <div class="field-row" role="group">
+        <label data-testid="issue.fields.duedate-label">Due date</label>
+        <div class="val" data-testid="issue.fields.duedate-field">12 Sep 2026</div>
+      </div>
+
+      <div class="field-row" role="group">
+        <label data-testid="issue.fields.fixVersions-label">Fix versions</label>
+        <div class="val" data-testid="issue.fields.fixVersions-field"><span class="pill done">4.2</span></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

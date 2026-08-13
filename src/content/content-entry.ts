@@ -549,6 +549,7 @@ function init(): void {
   void loadActivations().then((a) => {
     activations = a;
     recomputeActive();
+    applyCoverStyle();
     if (onIssuePage) void loadHiddenFieldIdsAndRender();
   });
 

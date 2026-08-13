@@ -677,7 +677,7 @@ function init(): void {
 
   let settling = false;
 
-  onPrefsChanged((store) => {
+  onPrefsChanged(() => {
     // A write from another tab/context on a scope this tab isn't activated
     // for must not wake this tab up.
     if (!isActive) return;
@@ -726,10 +726,14 @@ function init(): void {
     }
 
     if (!currentProjectKey) return;
-    const pref = store[makePrefKey(currentHost, currentProjectKey, currentIssueTypeId)];
-    currentHiddenFieldIds = new Set(pref?.hiddenFieldIds ?? []);
-    const fresh = onIssuePage ? listAll(getIssueRoot()) : [];
-    void render(fresh);
+    // Do NOT trust `store` (this event's own newValue snapshot) here: onChanged
+    // events for a rapid write burst have no guaranteed arrival order relative
+    // to each other, so an event for an OLDER write can land after the
+    // issued===committed gate above has already re-converged past it, passing
+    // this gate while carrying stale data. A fresh storage read is immune to
+    // that ordering, since by the time issued===committed every local write
+    // has actually committed to storage regardless of event order.
+    void loadHiddenFieldIdsAndRender();
   });
 }
 

@@ -233,7 +233,14 @@ export function syncCoverStyle(heightPx: number | null): void {
       ? ''
       : (() => {
           const clamped = Math.min(600, Math.max(20, heightPx));
-          return `[role="img"][aria-label$="cover" i] {\n  height: ${clamped}px !important;\n  min-height: 0 !important;\n  max-height: ${clamped}px !important;\n}`;
+          // ponytail: two ancestor levels covers the current Jira markup
+          // (wrapper > img, wrapper > row > img); if Jira nests the cover
+          // deeper, this depth has to be raised.
+          return (
+            `[role="img"][aria-label$="cover" i] {\n  height: ${clamped}px !important;\n  min-height: 0 !important;\n  max-height: ${clamped}px !important;\n}\n` +
+            `:has(> [role="img"][aria-label$="cover" i]),\n` +
+            `:has(> * > [role="img"][aria-label$="cover" i]) {\n  height: ${clamped}px !important;\n  min-height: 0 !important;\n  max-height: ${clamped}px !important;\n}`
+          );
         })();
   if (coverStyleEl.textContent !== text) {
     coverStyleEl.textContent = text;

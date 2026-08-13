@@ -1,17 +1,17 @@
 # Handover — 2026-08-13
 
-State: branch `feat/site-scoped-activation`, version **0.3.0**. `npm run build` clean,
-`npx vitest run` 129/0.
+State: everything below is merged into `main`, version **0.4.0** (Firefox build target added,
+see `docs/CHANGELOG.md` `[0.4.0]`). `npm run build` clean, `npx vitest run` 129/0 as of 0.3.0 —
+the browser check for open point 1 is still outstanding.
 
 Everything in the shrink-cover feature is implemented, reviewed (final whole-branch review plus two
 fix rounds) and documented in `docs/CHANGELOG.md` `[0.3.0]`. Two things are still open.
 
-**`field-ninja-0.3.0.zip` at the repo root is stale** — it predates `9e18c88`, `e4692f4` and
-`b23dac3`, so it ships without the race fix and without the locale fix. Rebuild before any CWS
-upload.
+**The stale `field-ninja-0.3.0.zip` has been deleted** — it predated the race fix and the locale
+fix. Build a fresh zip from `dist/` for any CWS upload; there is no packaging script.
 
-`main` has been fast-forwarded to `e4692f4`; this branch is ahead of it by the cover-selector fix
-and these docs. `feat/firefox-port` also branches off `e4692f4` and carries a copy of this file.
+`main` now carries the Firefox port and the cover-selector fix; `feat/site-scoped-activation` and
+`feat/firefox-port` are merged into it and can be deleted.
 
 ---
 
@@ -140,7 +140,7 @@ the failure only ever appears under load, it is (1).
 
 ## Also worth knowing
 
-- **CWS upload is manual and still pending.** Upload `field-ninja-0.3.0.zip` in the dashboard.
+- **CWS upload is manual and still pending.** Zip `dist/` as 0.4.0 and upload it in the dashboard.
   Permission justifications from `716d37e`/`3fe6355` are unchanged — the cover feature adds no
   permissions. Store assets must never be produced against the real tenant.
 - `fail.png` / `needed.png` at the repo root are untracked and were deliberately left alone.

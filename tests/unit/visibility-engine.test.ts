@@ -178,4 +178,10 @@ describe('syncCoverStyle', () => {
     const styleEl = document.getElementById('jfv-cover-style');
     expect(styleEl?.textContent).toContain('20px');
   });
+
+  it('clamps a too-large height to the maximum', () => {
+    syncCoverStyle(9999);
+    const styleEl = document.getElementById('jfv-cover-style');
+    expect(styleEl?.textContent).toContain('600px');
+  });
 });

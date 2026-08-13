@@ -367,7 +367,7 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
       ...persistedTabSelectors,
       ...persistedSectionSelectors,
     ]);
-    syncCoverStyle(coverHeightPx);
+    applyCoverStyle();
 
     markOwnMutation(() => {
       for (const entry of computeVisibilityDiff(fields, hiddenSet)) {
@@ -635,6 +635,7 @@ function init(): void {
     currentHost = ctx.host;
     onIssuePage = ctx.issueKey !== null;
     recomputeActive();
+    applyCoverStyle();
     if (onIssuePage) {
       void loadHiddenFieldIdsAndRender();
     } else {

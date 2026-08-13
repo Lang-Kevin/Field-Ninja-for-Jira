@@ -21,7 +21,7 @@ import {
   loadActivations,
   onActivationsChanged,
 } from '../lib/storage-service';
-import { makePrefKey, makeScopeKey, fieldLabelKey, tabCacheKey, sectionCacheKey } from '../types/prefs';
+import { makeScopeKey, fieldLabelKey, tabCacheKey, sectionCacheKey } from '../types/prefs';
 import type { ActivationStore } from '../types/prefs';
 import { computeVisibilityDiff, computeHiddenSelectors, computeHiddenTabs, computeHiddenSections, syncHiddenStylesheet, syncCoverStyle, writeHiddenAttr } from '../lib/visibility-engine';
 import { mountFieldToggle } from '../lib/ui-overlay';

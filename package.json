@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "node esbuild.config.mjs",
+    "build:firefox": "node esbuild.config.mjs --target=firefox",
+    "build:all": "npm run build && npm run build:firefox",
     "dev": "node esbuild.config.mjs --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

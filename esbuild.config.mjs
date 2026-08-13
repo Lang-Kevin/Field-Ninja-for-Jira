@@ -1,31 +1,39 @@
 import * as esbuild from 'esbuild';
-import { existsSync, cpSync, copyFileSync, mkdirSync } from 'node:fs';
+import {
+  existsSync,
+  cpSync,
+  copyFileSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname } from 'node:path';
 
 const isWatch = process.argv.includes('--watch');
+const isFirefox = process.argv.includes('--target=firefox');
 
-const distDir = 'dist';
+const distDir = isFirefox ? 'dist-firefox' : 'dist';
 
 /** @type {esbuild.BuildOptions[]} */
 const buildConfigs = [
   {
     entryPoints: ['src/background/service-worker.ts'],
-    outfile: 'dist/background.js',
-    format: 'esm',
+    outfile: `${distDir}/background.js`,
+    format: isFirefox ? 'iife' : 'esm',
   },
   {
     entryPoints: ['src/content/content-entry.ts'],
-    outfile: 'dist/content.js',
+    outfile: `${distDir}/content.js`,
     format: 'iife',
   },
   {
     entryPoints: ['src/options/options.ts'],
-    outfile: 'dist/options.js',
+    outfile: `${distDir}/options.js`,
     format: 'iife',
   },
   {
     entryPoints: ['src/popup/popup.ts'],
-    outfile: 'dist/popup.js',
+    outfile: `${distDir}/popup.js`,
     format: 'iife',
   },
 ].map((config) => ({
@@ -33,6 +41,7 @@ const buildConfigs = [
   minify: true,
   sourcemap: true,
   ...config,
+  ...(isFirefox ? { define: { chrome: 'browser' } } : {}),
 }));
 
 function copyIfExists(src, dest) {
@@ -53,18 +62,28 @@ function copyDirIfExists(src, dest) {
   cpSync(src, dest, { recursive: true });
 }
 
+function writeManifest() {
+  const manifest = JSON.parse(readFileSync('manifest.json', 'utf-8'));
+  if (isFirefox) {
+    const patch = JSON.parse(readFileSync('manifest.firefox.json', 'utf-8'));
+    delete manifest.background; // service_worker + type:module out
+    Object.assign(manifest, patch); // ponytail: flat merge is enough for these top-level deltas
+  }
+  writeFileSync(`${distDir}/manifest.json`, JSON.stringify(manifest, null, 2));
+}
+
 function copyStaticAssets() {
   if (!existsSync(distDir)) {
     mkdirSync(distDir, { recursive: true });
   }
 
-  copyIfExists('manifest.json', 'dist/manifest.json');
-  copyIfExists('src/options/options.html', 'dist/options.html');
-  copyIfExists('src/options/options.css', 'dist/options.css');
-  copyIfExists('src/popup/popup.html', 'dist/popup.html');
-  copyIfExists('src/popup/popup.css', 'dist/popup.css');
-  copyIfExists('src/content/styles.css', 'dist/content.css');
-  copyDirIfExists('icons', 'dist/icons');
+  writeManifest();
+  copyIfExists('src/options/options.html', `${distDir}/options.html`);
+  copyIfExists('src/options/options.css', `${distDir}/options.css`);
+  copyIfExists('src/popup/popup.html', `${distDir}/popup.html`);
+  copyIfExists('src/popup/popup.css', `${distDir}/popup.css`);
+  copyIfExists('src/content/styles.css', `${distDir}/content.css`);
+  copyDirIfExists('icons', `${distDir}/icons`);
 }
 
 async function run() {

@@ -32,7 +32,7 @@
 - Keys (`prefs.ts:40-44`):
   - `jiraFieldVisibility:v3` → `Record<'${host}:${projectKey}:${issueTypeId}', Pref>` (`prefs.ts:10,21-23`)
   - `jiraFieldVisibility:activations:v1` → `Record<'${host}:${projectKey}', true>` (`prefs.ts:13,16-18`)
-  - `jiraFieldVisibility:settings:v1` → `Settings { showFieldButtons, debugOutline }`, global, **nicht** scope-behaftet (`prefs.ts:46-53`)
+  - `jiraFieldVisibility:settings:v1` → `Settings { showFieldButtons, debugOutline, shrinkCover, coverHeightPx }`, global, **nicht** scope-behaftet (`prefs.ts:46-53`)
   - `LEGACY_PREFS_KEYS = ['…:v1','…:v2']` → nur zum Löschen (`prefs.ts:44`)
 - `Pref = { host, projectKey, issueTypeId, hiddenFieldIds[] }` (`prefs.ts:1-7`).
 - Local-Caches (best effort, nie autoritativ, v2-Präfix): `jfv-field-labels:v2:`, `jfv-tab-fields:v2:`, `jfv-section-fields:v2:` (`prefs.ts:26-38`).
@@ -50,7 +50,7 @@
 | `src/lib/storage-service.ts` | **einziges** Gateway zu `chrome.storage`; Serialisierung + Write-Seq-Metadaten (`:14-31`) | von woanders direkt auf `chrome.storage.sync` zugreifen |
 | `src/lib/field-registry.ts` | DOM→`FieldMeta[]` via `listFields`/`listPanels`/`listTabs`/`listSections`/`listUndetectedCandidates`, plus `findContainer` (Container-Auflösung); setzt den `protected`-Flag (`:177-597`) | Protected-Felder unmarkiert lassen |
 | `src/lib/field-id.ts` | stabile Feld-ID über Re-Renders: `normalizeLabel`, `hashString`, `deriveFieldId(node, label, opts?)` (`:7-63`) | ID von DOM-Reihenfolge abhängig machen |
-| `src/lib/visibility-engine.ts` | reine Berechnung (`computeVisibilityDiff`, `computeHiddenTabs`, `computeHiddenSelectors`, `computeHiddenSections`) + DOM-Schreiben (`writeHiddenAttr`, `syncHiddenStylesheet`, `toggleField`) (`:31-219`) | protected Felder ausblenden |
+| `src/lib/visibility-engine.ts` | reine Berechnung (`computeVisibilityDiff`, `computeHiddenTabs`, `computeHiddenSelectors`, `computeHiddenSections`) + DOM-Schreiben (`writeHiddenAttr`, `syncHiddenStylesheet`, `syncCoverStyle`, `toggleField`) (`:31-240`) | protected Felder ausblenden |
 | `src/lib/ui-overlay.ts` | `mountFieldToggle(host, field, projectKey, issueTypeId, hidden, onCommit)`, gibt Cleanup-Funktion zurück; verweigert Mount für `field.protected` (`:71-81`) | Toggle für protected Felder mounten |
 | `src/lib/dom-observer.ts` | **eine** geteilte MutationObserver-Instanz + `markOwnMutation` Self-Write-Suppression (`content-entry.ts:28,577`) | eine zweite Observer-Instanz aufmachen |
 | `src/content/content-entry.ts` | Orchestrierung + Aktivierungs-Gate; einzige Datei, die die Jira-Seite verändert | DOM-Schreiben außerhalb `render()`/Teardown |
@@ -84,6 +84,7 @@ Anmerkung: `applyVisibility` existiert nicht mehr (entfernt in `09fe599`, s. `do
 ## 7. Hard Rules (Review-Checkliste)
 
 - **HR-1 Ein Gate, ein Choke-Point.** Jeder Seiteneffekt liegt hinter `if (!isActive) { teardownPageEffects(); return; }` am Anfang von `render()`. *Verletzt, wenn:* ein neuer Code-Pfad DOM schreibt/Toggles mountet außerhalb `render()`. (`content-entry.ts:184-189`)
+  - **Abweichung (erlaubte Ausnahme):** `applyCoverStyle()` (`content-entry.ts:77-79`) ist ein zweiter, bewusster `isActive`-Choke-Point für die `<head>`-Cover-Regel. Nötig, weil Settings-/Aktivierungs-Callbacks `render()` nur bei `onIssuePage` erreichen — die Cover-Regel muss aber auch außerhalb einer Issue-Seite (de)aktiviert werden. Erlaubt, weil sie dasselbe `isActive`-Gate durchsetzt wie `render()` und die einzige zusätzliche Stelle bleibt.
 - **HR-2 Teardown bleibt idempotent & vollständig.** Neue Seiteneffekt-Arten müssen in `teardownPageEffects()` zurückgebaut werden (Stylesheet, `data-jfv-hidden`, ToggleMap, Tab-/Section-Sets). (`:78-91`)
 - **HR-3 Keine Migration alter Prefs.** v1/v2 werden gelöscht, nie gelesen/gemerged. *Verletzt bei:* jedem Lesezugriff auf `LEGACY_PREFS_KEYS`. (`storage-service.ts:33-36,402-411`)
 - **HR-4 Zwei getrennte Write-Chains + eine Seq-Queue.** `enqueueWrite`/`issuedWriteSeq`/`committedWriteSeq` gelten **nur** für Prefs-Writes; `saveSettings` nutzt `settingsWriteChain`, `setActivated` nutzt `activationsWriteChain`. *Verletzt, wenn:* Settings/Activations in `enqueueWrite` gehängt werden (ein laufender Feld-Toggle würde das Aktivierungs-Re-Render schlucken). (`storage-service.ts:115-122,293-305,352-374`)

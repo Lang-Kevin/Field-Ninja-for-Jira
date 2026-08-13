@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Field Ninja for Jira",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Hide or show Jira Cloud issue fields per issue type.",
   "permissions": ["storage", "scripting"],
   "host_permissions": ["https://*.atlassian.net/*"],

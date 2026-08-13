@@ -2,6 +2,19 @@
 
 Format: gruppiert nach Feature/Milestone, nicht nach Einzel-Commit. Commit-Hashes in Klammern zur Nachvollziehbarkeit.
 
+## [0.3.0] — 2026-08-13
+
+`manifest.json`/`package.json` auf `0.3.0` angehoben. Minor, weil ein neues Feature dazukommt; bestehende Prefs bleiben unverändert gültig.
+
+### Shrink work item cover
+
+Jira Cloud reserviert für das Work-Item-Cover viel vertikalen Platz oberhalb der Felder. Neue globale Einstellung im Popup (`[x] Shrink work item cover to [80] px`), gespeichert im bestehenden `Settings`-Objekt (`jiraFieldVisibility:settings:v1`) — bewusst global, nicht pro Host/Projekt.
+
+- `syncCoverStyle(px | null)` schreibt ein eigenes `<style id="jfv-cover-style">` in den `<head>`; damit greift der `markOwnMutation`-Vertrag des DOM-Observers nicht (235326a).
+- `applyCoverStyle()` in `content-entry.ts` ist ein zweiter `isActive`-Choke-Point neben `render()` — nötig, weil die Settings-/Activation-Callbacks `render()` nur bei `onIssuePage` erreichen. Dokumentiert als Abweichung zu HR-1 (2508e9f, da5ac7c, 38b9e19).
+- Der Wert wird debounced auf `input` gespeichert, damit er das Schließen des Popups überlebt; zurückgeschrieben (geklemmt) wird das Feld nur auf `change` (7fcdde4, 6ca65c4).
+- Die Regel trifft das Cover (`[role="img"][aria-label$="cover" i]`) **und dessen direktes Elternelement**, damit der reservierte Platz mitschrumpft und das Summary nach oben rutscht. Ein zusätzlicher Großeltern-Selektor kollabierte den gemeinsamen Header-Container und wurde per Playwright-Fixture-Messung wieder entfernt (4e48772, 5d375b8).
+
 ## [0.2.0] — 2026-08-03
 
 `manifest.json`/`package.json` auf `0.2.0` angehoben (Wave D2 in `docs/PLAN.md`). Minor statt Patch, weil die verworfenen v1/v2-Prefs (siehe unten) jeden Nutzer beim Update zur Neukonfiguration zwingen.

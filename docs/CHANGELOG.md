@@ -15,6 +15,14 @@ Jira Cloud reserviert für das Work-Item-Cover viel vertikalen Platz oberhalb de
 - Der Wert wird debounced auf `input` gespeichert, damit er das Schließen des Popups überlebt; zurückgeschrieben (geklemmt) wird das Feld nur auf `change` (7fcdde4, 6ca65c4).
 - Die Regel trifft das Cover (`[role="img"][aria-label$="cover" i]`) **und dessen direktes Elternelement**, damit der reservierte Platz mitschrumpft und das Summary nach oben rutscht. Ein zusätzlicher Großeltern-Selektor kollabierte den gemeinsamen Header-Container und wurde per Playwright-Fixture-Messung wieder entfernt (4e48772, 5d375b8).
 
+### Fix: Race zwischen `storage.onChanged` und dem Write-Seq-Gate
+
+Ein sporadisch fehlschlagender Integrationstest ("Rapid toggling", ~4/26 Läufe) war kein Testfehler, sondern eine echte Race Condition.
+
+- `onPrefsChanged` vertraute dem Payload des `chrome.storage.onChanged`-Events. Das Event kann gegenüber dem `issued === committed`-Gate out of order eintreffen, wodurch ein veralteter Stand `currentHiddenFieldIds` per Full-Remount überschrieb. Jetzt wird per `loadHiddenFieldIdsAndRender()` frisch aus dem Storage gelesen (9e18c88).
+- Der Gate-Check ist synchron, das Nachladen async — ein Klick im Fenster dazwischen konnte den Button-Closure auf einen alten Stand zurücksetzen. `renderGen`-Generation-Guard in `loadHiddenFieldIdsAndRender()` verwirft veraltete Läufe vor jeder Zuweisung; serialisiert alle fünf Call-Sites (e4692f4).
+- Die Testdatei blieb unverändert (kein hochgesetzter Timeout). 20/20 Schleifenläufe grün, Suite 126/0.
+
 ## [0.2.0] — 2026-08-03
 
 `manifest.json`/`package.json` auf `0.2.0` angehoben (Wave D2 in `docs/PLAN.md`). Minor statt Patch, weil die verworfenen v1/v2-Prefs (siehe unten) jeden Nutzer beim Update zur Neukonfiguration zwingen.

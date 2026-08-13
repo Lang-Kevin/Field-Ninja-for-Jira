@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "seed:jira": "node scripts/jira-seed.mjs"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.268",

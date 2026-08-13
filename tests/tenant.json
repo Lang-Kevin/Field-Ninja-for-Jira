@@ -1,0 +1,57 @@
+{
+  "host": "fieldninjaforjira.atlassian.net",
+  "projects": {
+    "FNCM": {
+      "style": "classic",
+      "issueTypes": [
+        "Task",
+        "Bug",
+        "Story",
+        "Epic"
+      ],
+      "sampleIssues": {
+        "Task": "FNCM-1",
+        "Bug": "FNCM-2",
+        "Story": "FNCM-3",
+        "Epic": "FNCM-4"
+      }
+    },
+    "FNTM": {
+      "style": "next-gen",
+      "issueTypes": [
+        "Task",
+        "Bug"
+      ],
+      "sampleIssues": {
+        "Task": "FNTM-1",
+        "Bug": "FNTM-2"
+      }
+    }
+  },
+  "customFields": [
+    {
+      "name": "FN Text",
+      "id": "customfield_10048"
+    },
+    {
+      "name": "FN Paragraph",
+      "id": "customfield_10049"
+    },
+    {
+      "name": "FN Select",
+      "id": "customfield_10050"
+    },
+    {
+      "name": "FN User",
+      "id": "customfield_10051"
+    },
+    {
+      "name": "FN Date",
+      "id": "customfield_10052"
+    },
+    {
+      "name": "FN Labels",
+      "id": "customfield_10053"
+    }
+  ]
+}

@@ -25,3 +25,7 @@ skills-lock.json
 # Test run artifacts
 test-results/
 .playwright-mcp/
+
+auth.json
+.env
+.firefox-jira-profile/

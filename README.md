@@ -43,6 +43,12 @@ and needs zero Jira admin permissions to use.
    — eye icons appear next to each field, and the toolbar icon opens the
    panel
 
+**Firefox (development/testing):**
+
+1. `npm run build:firefox` — bundles `src/` into `dist-firefox/`
+2. Open `about:debugging#/runtime/this-firefox`
+3. Click **Load Temporary Add-on**, select `dist-firefox/manifest.json`
+
 ## Usage
 
 - Click the eye icon next to a field to hide/show just that field.

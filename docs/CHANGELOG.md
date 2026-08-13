@@ -2,6 +2,20 @@
 
 Format: gruppiert nach Feature/Milestone, nicht nach Einzel-Commit. Commit-Hashes in Klammern zur Nachvollziehbarkeit.
 
+## [0.4.0] — 2026-08-13
+
+`manifest.json`/`package.json` auf `0.4.0` angehoben. Minor, weil ein neues Build-Target dazukommt; bestehendes Chrome-Verhalten ist unverändert.
+
+### Firefox-Port (zweites Build-Target)
+
+`npm run build:firefox` baut aus demselben `src/` nach `dist-firefox/`; `npm run build:all` baut beide Targets. `npm run build`/`dev` bleiben unverändertes Chrome.
+
+- Firefox hat keinen MV3-Service-Worker (Gecko) — Background läuft dort als IIFE über `background.scripts` statt `service_worker`/ESM (`esbuild.config.mjs:20-23,69`).
+- `chrome`-Namespace wird im Firefox-Build per esbuild `define: { chrome: 'browser' }` ersetzt, kein `webextension-polyfill` nötig (`esbuild.config.mjs:44`).
+- `manifest.firefox.json` trägt nur die Deltas (u. a. Pflichtfeld `browser_specific_settings.gecko.id`) und wird zur Build-Zeit flach über `manifest.json` gemerged (`esbuild.config.mjs:65-73`).
+- Das graue Toolbar-Icon (nicht-eligible Tab) ist jetzt für **beide** Targets eine statische PNG (`icons/icon{16,48}-grey.png`, `scripts/make-grey-icons.cjs`) statt zur Laufzeit per `OffscreenCanvas` erzeugt zu werden — der alte Pfad war worker-only und in Firefox nicht verfügbar.
+- Verifiziert: Typecheck, Build, 115 Unit- + 11 Integrationstests sowie `build:firefox` grün; manuell in Firefox (`about:debugging`, `dist-firefox/`, inkl. lokalisierter Jira-UI) und erneut in Chrome geprüft. AMO-Submission ist bewusst nicht Teil dieser Änderung.
+
 ## [0.3.0] — 2026-08-13
 
 `manifest.json`/`package.json` auf `0.3.0` angehoben. Minor, weil ein neues Feature dazukommt; bestehende Prefs bleiben unverändert gültig.

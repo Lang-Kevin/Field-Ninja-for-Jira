@@ -100,7 +100,7 @@ Anmerkung: `applyVisibility` existiert nicht mehr (entfernt in `09fe599`, s. `do
 - **HR-14 `onPrefsChanged` bleibt auf `isActive` + Seq-Gate + `settling`-Flag.** Fremd-Tab-Writes dürfen einen inaktiven Tab nicht aufwecken; stale Events werden per `waitForWritesToSettle` aufgelöst, nicht verworfen. (`content-entry.ts:656-709`, `storage-service.ts:224-238`)
 - **HR-15 `onActivationsChanged` ist Pflicht-Geschwister zu `onPrefsChanged`** — Aktivierung liegt auf einem anderen Key, `onPrefsChanged` feuert dafür nie. (`content-entry.ts:540-553`, `storage-service.ts:377-389`)
 - **HR-16 Deaktivieren erhält Prefs**; `clearPrefs()` entfernt nur den Prefs-Key, Activations bleiben. (`storage-service.ts:70-72,365-369`)
-- **HR-17 Keine neuen Permissions/Assets.** Icon-Graustufe wird zur Laufzeit via OffscreenCanvas erzeugt und gecacht; `chrome.action.*` braucht keinen Permission-Eintrag. *Verletzt bei:* neuem `tabs`-Permission, neuem Host-Pattern oder neuer PNG-Datei. (`service-worker.ts:16-48`, `manifest.json:6-12`)
+- **HR-17 Keine neuen Permissions.** Icon-Graustufe ist eine statische PNG (`icons/icon{16,48}-grey.png`, generiert von `scripts/make-grey-icons.cjs`); `chrome.action.*` braucht keinen Permission-Eintrag. *Verletzt bei:* neuem `tabs`-Permission oder neuem Host-Pattern. (`service-worker.ts:15-24`, `manifest.json:6-12`)
 - **HR-18 Keine Test-Hintertür im Produktivcode** (kein `host === 'localhost'`-Bypass); Integrationstests seeden echte Activations. (`tests/integration/setup.ts:49-73`)
 - **HR-19 `__jfvLoaded`-Guard bleibt** — SW-Re-Injection darf kein zweites Init erzeugen. (`content-entry.ts:712-715`, `service-worker.ts:51-60`)
 - **HR-20 Kein zweiter Message-Typ für Aktivierung.** Fluss ist Popup → Storage → Content. (`popup.ts:79-87`)
@@ -131,6 +131,15 @@ Anmerkung: `applyVisibility` existiert nicht mehr (entfernt in `09fe599`, s. `do
 ## 11. Änderungspolitik
 - Spec-Änderung = eigener Commit, Begründung in `docs/CHANGELOG.md`.
 - Hard-Rule-IDs sind stabil; entfernte Regel wird als „zurückgezogen (Datum, Grund)" markiert statt gelöscht — sonst brechen Review-Referenzen.
+
+## 12. Build-Targets (Chrome/Firefox)
+- Zwei Targets aus demselben `src/`: `npm run build` → `dist/` (Chrome/Chromium), `npm run build:firefox` → `dist-firefox/` (Firefox); `npm run build:all` baut beide (`esbuild.config.mjs:13,15`).
+- Drei reale Deltas, sonst identischer Code:
+  1. **Background**: Chrome bündelt `service_worker`/ESM (MV3-SW); Firefox hat keinen MV3-Service-Worker, daher `background.scripts` als IIFE (`esbuild.config.mjs:20-23,69`).
+  2. **`chrome`-Namespace**: Firefox-Build setzt esbuild `define: { chrome: 'browser' }` statt `webextension-polyfill` einzubinden (`esbuild.config.mjs:44`).
+  3. **Manifest-Merge**: `manifest.firefox.json` enthält nur die Deltas (u. a. Pflichtfeld `browser_specific_settings.gecko.id`) und wird zur Build-Zeit flach über `manifest.json` gemerged (`esbuild.config.mjs:65-73`, `manifest.firefox.json:1-6`).
+- Grau-Icon (nicht-eligible Tab) ist für **beide** Targets eine statische PNG (`icons/icon{16,48}-grey.png`, generiert von `scripts/make-grey-icons.cjs`) — der frühere OffscreenCanvas-Laufzeitpfad war worker-only und ist entfernt (siehe `docs/CHANGELOG.md`).
+- AMO-Submission ist nicht Teil dieses Scopes.
 
 ## Anhang: Abweichungen Plan → Code (Code gilt)
 

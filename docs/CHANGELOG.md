@@ -29,7 +29,7 @@ Zweistufiges Aktivierungsmodell: eine Seite ist *eligible* (URL-Gate) oder *akti
 
 Popup-Setting `shrinkCover` + `coverHeightPx` (20–600px, Default 300) schreibt eine Höhenbeschränkung fürs Jira-Cover-Bild in ein eigenes `<style id="jfv-cover-style">`-Element in `<head>`. Liegt außerhalb `document.body` und damit außerhalb des `markOwnMutation`-Vertrags von `dom-observer.ts` — kein Observer-Rückkopplungsrisiko.
 
-- `syncCoverStyle()` in `visibility-engine.ts` clamped serverseitig auf 20–600px als einzige Validierungsstelle; der Popup-Zahleneingabe-Wert kann dadurch nie einen Wert persistieren, der nicht dem gerenderten entspricht.
+- `syncCoverStyle()` in `visibility-engine.ts` clamped serverseitig auf 20–600px als Validierungsstelle der Engine (der Popup-Input klemmt zusätzlich vor dem Speichern); der Popup-Zahleneingabe-Wert kann dadurch nie einen Wert persistieren, der nicht dem gerenderten entspricht.
 - `applyCoverStyle()` (`content-entry.ts:77-79`) ist ein bewusster zweiter `isActive`-Choke-Point neben `render()` — dokumentiert als Abweichung von HR-1 in `docs/SPEC.md`, weil Settings-/Aktivierungs-Callbacks `render()` nur bei `onIssuePage` erreichen, die Cover-Regel aber auch außerhalb einer offenen Issue gated werden muss.
 - Final-Review-Fixes: `aria-label`-Selektor von Substring- auf Suffix-Match verengt (verhinderte Kollisionen mit „Discover"/„Recovery"/„coverage"), Popup-Zahleneingabe committet jetzt zusätzlich debounced auf `input` (verhindert Datenverlust beim Schließen des Popups vor `change`), doppelte Gate-Logik in `render()` durch `applyCoverStyle()`-Aufruf ersetzt, fehlender `applyCoverStyle()`-Call nach `recomputeActive()` im SPA-Watcher ergänzt, `aria-label` auf dem Zahlenfeld für Screenreader ergänzt.
 

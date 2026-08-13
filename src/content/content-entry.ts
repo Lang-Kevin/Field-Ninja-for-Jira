@@ -69,6 +69,16 @@ function recomputeActive(): void {
 }
 
 /**
+ * Applies (or reverts) the cover-height rule based on the current activation
+ * state. Unlike render()'s teardown, this must be reachable from every path
+ * that can change isActive or coverHeightPx — not only the onIssuePage
+ * render() path — since the cover can exist on non-issue Jira routes too.
+ */
+function applyCoverStyle(): void {
+  syncCoverStyle(isActive ? coverHeightPx : null);
+}
+
+/**
  * Reverts every page mutation render() may have made: stylesheet rules,
  * data-jfv-hidden attributes, and mounted toggle buttons. Called whenever
  * isActive is false so deactivating a scope (or navigating into one that was
@@ -550,6 +560,7 @@ function init(): void {
   onActivationsChanged((a) => {
     activations = a;
     recomputeActive();
+    applyCoverStyle();
     if (isActive) {
       void loadHiddenFieldIdsAndRender();
     } else {
@@ -557,20 +568,22 @@ function init(): void {
     }
   });
 
-  // Not gated on isActive: its only CSS effect keys off the [data-jfv-host]
-  // attribute, which is set exclusively inside the gated mountFieldToggle,
-  // so toggling this class is a no-op when the extension is inactive.
+  // showFieldButtons/debugOutline are not gated on isActive: their only CSS
+  // effect keys off attributes/classes set exclusively inside the gated
+  // mountFieldToggle path, so they're a no-op when the extension is
+  // inactive. coverHeightPx IS gated (via applyCoverStyle) since its rule
+  // targets a bare aria-label selector with no such isActive-scoped anchor.
   void loadSettings().then((settings) => {
     showFieldButtons = settings.showFieldButtons;
     coverHeightPx = settings.shrinkCover ? settings.coverHeightPx : null;
-    syncCoverStyle(coverHeightPx);
+    applyCoverStyle();
     markOwnMutation(() => document.body.classList.toggle('jfv-debug', !!settings.debugOutline));
     if (onIssuePage) void render(listAll(getIssueRoot()));
   });
   onSettingsChanged((settings) => {
     showFieldButtons = settings.showFieldButtons;
     coverHeightPx = settings.shrinkCover ? settings.coverHeightPx : null;
-    syncCoverStyle(coverHeightPx);
+    applyCoverStyle();
     markOwnMutation(() => document.body.classList.toggle('jfv-debug', !!settings.debugOutline));
     if (onIssuePage) void render(listAll(getIssueRoot()));
   });

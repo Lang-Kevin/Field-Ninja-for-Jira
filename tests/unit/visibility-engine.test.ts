@@ -169,9 +169,35 @@ describe('syncCoverStyle', () => {
   it('also writes a direct-parent :has() rule collapsing the cover wrapper, but not a grandparent rule', () => {
     syncCoverStyle(120);
     const styleEl = document.getElementById('jfv-cover-style');
-    expect(styleEl?.textContent).toContain(':has(> [role="img"][aria-label$="cover" i])');
+    expect(styleEl?.textContent).toContain(':has(> div[role="img"][aria-label]:empty)');
     expect(styleEl?.textContent).not.toContain(':has(> * >');
     expect(styleEl?.textContent?.match(/120px/g)?.length).toBe(4);
+  });
+
+  it('matches the real German cover markup structurally (no text match on the label)', () => {
+    document.body.innerHTML = `
+      <div class="css-1q0r35z">
+        <div class="_19itglyw _vchhusvi" role="img" aria-label="Vorgangstitelbild"></div>
+        <div class="css-169c36b"><button type="button"><span>Titelbild bearbeiten</span></button></div>
+      </div>`;
+    syncCoverStyle(120);
+    const cover = document.querySelector('[aria-label="Vorgangstitelbild"]');
+    expect(cover?.matches('div[role="img"][aria-label]:empty')).toBe(true);
+  });
+
+  it('does not match an assignee avatar (no aria-label, has children)', () => {
+    document.body.innerHTML = `
+      <div role="img" data-testid="board.common.fields.assignee-field-static.avatar"><span></span><span></span></div>`;
+    syncCoverStyle(120);
+    const avatar = document.querySelector('[data-testid="board.common.fields.assignee-field-static.avatar"]');
+    expect(avatar?.matches('div[role="img"][aria-label]:empty')).toBe(false);
+  });
+
+  it('still matches the English label "Work item cover"', () => {
+    document.body.innerHTML = `<div role="img" aria-label="Work item cover"></div>`;
+    syncCoverStyle(120);
+    const cover = document.querySelector('[aria-label="Work item cover"]');
+    expect(cover?.matches('div[role="img"][aria-label]:empty')).toBe(true);
   });
 
   it('empties the rule when passed null', () => {

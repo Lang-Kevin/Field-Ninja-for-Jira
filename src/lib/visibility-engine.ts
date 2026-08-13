@@ -218,10 +218,14 @@ let coverStyleEl: HTMLStyleElement | null = null;
  * cover height). Clamps to a sane range as the single validation point for
  * the popup's number input.
  *
- * ponytail: aria-label suffix match — breaks on a non-English Jira UI, and
- * still assumes the label ends in "cover"; switch to a data-testid anchor
- * once the live DOM is inspected. Only the cover's direct parent is
- * resized, not the grandparent: a `:has(> * > …)` grandparent rule matches
+ * ponytail: matches structurally, not by label text, so it survives all
+ * ~25 Jira locales — `div[role="img"][aria-label]:empty` relies on the
+ * cover being a `role="img"` div that (a) HAS an aria-label attribute
+ * (present in every locale, just localized text) and (b) is empty.
+ * Assignee avatars are also `role="img"` divs but carry no aria-label and
+ * have child `<span>`s, so they're excluded on both counts. Only the
+ * cover's direct parent is resized, not the grandparent: a `:has(> * > …)`
+ * grandparent rule matches
  * whatever ancestor sits two levels up, which in the live issue header is
  * NOT a cover-only wrapper — it's the shared header container that also
  * holds the summary heading and field rows, so collapsing it took those
@@ -241,8 +245,8 @@ export function syncCoverStyle(heightPx: number | null): void {
       : (() => {
           const clamped = Math.min(600, Math.max(20, heightPx));
           return (
-            `[role="img"][aria-label$="cover" i] {\n  height: ${clamped}px !important;\n  min-height: 0 !important;\n  max-height: ${clamped}px !important;\n}\n` +
-            `:has(> [role="img"][aria-label$="cover" i]) {\n  height: ${clamped}px !important;\n  min-height: 0 !important;\n  max-height: ${clamped}px !important;\n}`
+            `div[role="img"][aria-label]:empty {\n  height: ${clamped}px !important;\n  min-height: 0 !important;\n  max-height: ${clamped}px !important;\n}\n` +
+            `:has(> div[role="img"][aria-label]:empty) {\n  height: ${clamped}px !important;\n  min-height: 0 !important;\n  max-height: ${clamped}px !important;\n}`
           );
         })();
   if (coverStyleEl.textContent !== text) {

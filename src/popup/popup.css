@@ -33,6 +33,10 @@ h1 {
   cursor: pointer;
 }
 
+.jfv-number-input {
+  width: 4.5em;
+}
+
 .jfv-field-row {
   display: flex;
   align-items: center;

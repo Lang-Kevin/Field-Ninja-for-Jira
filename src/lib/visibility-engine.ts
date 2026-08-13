@@ -209,6 +209,36 @@ export function syncHiddenStylesheet(selectors: string[]): void {
   }
 }
 
+let coverStyleEl: HTMLStyleElement | null = null;
+
+/**
+ * Writes a cover-image height override into a single shared `<style>`
+ * element in `<head>` (outside document.body — no markOwnMutation needed,
+ * see syncHiddenStylesheet above). `null` clears the rule (Jira's original
+ * cover height). Clamps to a sane range as the single validation point for
+ * the popup's number input.
+ *
+ * ponytail: aria-label match — breaks on a non-English Jira UI; switch to a
+ * data-testid anchor if one shows up in the real DOM.
+ */
+export function syncCoverStyle(heightPx: number | null): void {
+  if (!coverStyleEl) {
+    coverStyleEl = document.createElement('style');
+    coverStyleEl.id = 'jfv-cover-style';
+    document.head.appendChild(coverStyleEl);
+  }
+  const text =
+    heightPx === null
+      ? ''
+      : (() => {
+          const clamped = Math.min(600, Math.max(20, heightPx));
+          return `[role="img"][aria-label*="cover" i] {\n  height: ${clamped}px !important;\n  min-height: 0 !important;\n  max-height: ${clamped}px !important;\n}`;
+        })();
+  if (coverStyleEl.textContent !== text) {
+    coverStyleEl.textContent = text;
+  }
+}
+
 /**
  * Applies a single field's visibility immediately (not batched/rAF) — the
  * direct response to a user clicking a toggle in the UI overlay. Still

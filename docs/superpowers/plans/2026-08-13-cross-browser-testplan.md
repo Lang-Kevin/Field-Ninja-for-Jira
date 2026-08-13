@@ -40,11 +40,11 @@ Copied verbatim from `docs/SPEC.md` and `CLAUDE.md`; every task inherits these.
 **Files:**
 - Create: `docs/superpowers/plans/2026-08-13-cross-browser-testplan.md`
 
-- [ ] **Step 1: Copy this plan file into the project**
+- [x] **Step 1: Copy this plan file into the project**
 
 Project rule (`CLAUDE.md` → Plan Storage) keeps plans inside the repo. Copy the contents of this file to `docs/superpowers/plans/2026-08-13-cross-browser-testplan.md` and work from there.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add docs/superpowers/plans/2026-08-13-cross-browser-testplan.md
@@ -94,7 +94,7 @@ Six custom fields on `FNCM`, chosen to cover every branch of `src/lib/field-id.t
 | FN Date | `…:datepicker` |
 | FN Labels | `…:labels` |
 
-- [ ] **Step 1: Write the script**
+- [x] **Step 1: Write the script**
 
 Create `scripts/jira-seed.mjs`. Everything is idempotent: each create is preceded by a lookup, and an existing object is reused, never duplicated. Rerunning after a tenant wipe must produce the same `tests/tenant.json`.
 
@@ -271,7 +271,7 @@ console.log('\nwrote tests/tenant.json');
 console.log(JSON.stringify(tenant, null, 2));
 ```
 
-- [ ] **Step 2: Run the dry run and verify it authenticates**
+- [x] **Step 2: Run the dry run and verify it authenticates**
 
 ```bash
 export JIRA_EMAIL='kevinlangprivat@gmail.com'
@@ -281,7 +281,7 @@ node scripts/jira-seed.mjs --dry-run
 
 Expected: `authenticated as … (accountId)`, then a list of `DRY POST …` lines. If it prints `401`, the token is wrong. If it prints `403` on `/rest/api/3/field`, the account is not a Jira admin on the tenant — stop and tell the user; nothing downstream works without admin.
 
-- [ ] **Step 3: Run it for real**
+- [x] **Step 3: Run it for real**
 
 ```bash
 node scripts/jira-seed.mjs
@@ -289,7 +289,7 @@ node scripts/jira-seed.mjs
 
 Expected: projects created (or "exists"), 6 fields created, fields added to screen, issues created, `tests/tenant.json` written with real issue keys.
 
-- [ ] **Step 4: Run it a second time to prove idempotency**
+- [x] **Step 4: Run it a second time to prove idempotency**
 
 ```bash
 node scripts/jira-seed.mjs
@@ -301,7 +301,7 @@ Expected: every line says "exists" or is silent; no `creating` lines; `tests/ten
 git diff --stat tests/tenant.json   # expected: no output
 ```
 
-- [ ] **Step 5: Add the npm script and gitignore entry**
+- [x] **Step 5: Add the npm script and gitignore entry**
 
 In `package.json` scripts:
 ```json
@@ -309,7 +309,7 @@ In `package.json` scripts:
 ```
 In `.gitignore`, append `.env` if not already present. `tests/tenant.json` **is** committed — it is the contract the e2e suites read.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add scripts/jira-seed.mjs package.json .gitignore tests/tenant.json
@@ -374,7 +374,7 @@ Setting an issue **cover image** has no public REST endpoint. Do it once by hand
 | 19 | `chrome.storage.sync` holds no `jiraFieldVisibility:v1` / `:v2` key | HR-3 |
 | 20 | non-eligible URL (`https://<host>/wiki` or `/jira/settings`) → 0 toggles, no `[jfv]` error | HR-17 |
 
-- [ ] **Step 1: Write the shared suite**
+- [x] **Step 1: Write the shared suite**
 
 Create `scripts/e2e-checks.mjs`. Structure — the whole file is one exported async function plus a tiny `check` recorder; no classes, no framework:
 
@@ -440,14 +440,14 @@ Implementation notes the executor needs, so checks 5–20 are not guesswork:
 - **check 20:** `/jira/settings/…` is eligible by path (`/jira/`) but has no issue; use `${ORIGIN}/wiki` or `${ORIGIN}/people`, which fail the path gate outright.
 - Timing: never assert immediately after navigation. The content script debounces rescans by 300 ms and settle-polls up to 100× (`content-entry.ts:33,627-646`). The existing scripts use 1500–8000 ms; keep `SETTLE = 6000` for issue pages and 8000 for the issue navigator.
 
-- [ ] **Step 2: Run it before wiring — verify it fails cleanly**
+- [x] **Step 2: Run it before wiring — verify it fails cleanly**
 
 ```bash
 node -e "import('./scripts/e2e-checks.mjs').then(m => console.log(typeof m.runChecks))"
 ```
 Expected: `function`. (There is no standalone failing test here — the suite needs a driver; the real verification is Step 4.)
 
-- [ ] **Step 3: Refactor `scripts/pw-real.mjs` into a driver + launcher**
+- [x] **Step 3: Refactor `scripts/pw-real.mjs` into a driver + launcher**
 
 Keep untouched: the header comment, `CHROME` resolution (`:27-33`), `launch()` (`:61-70`), the session-cookie login flow (`:72-98`), and the `readPopup` background-reload workaround (`:102-109`) — that workaround is required because a popup opened as a tab is itself the active tab, so `tabs.query` returns the popup and the popup renders S0.
 
@@ -502,13 +502,13 @@ node scripts/pw-real.mjs fieldninjaforjira.atlassian.net
 ```
 Expected: first run may open one window for login (session then persists in `.playwright-jira-profile/`); afterwards fully headless. Expected output: `chrome: 20/20 passed`. Any FAIL must be triaged as a real bug or a real timing problem — never by loosening the assertion.
 
-- [ ] **Step 5: Add the npm script**
+- [x] **Step 5: Add the npm script**
 
 ```json
 "e2e:chrome": "node scripts/pw-real.mjs fieldninjaforjira.atlassian.net"
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add scripts/e2e-checks.mjs scripts/pw-real.mjs package.json

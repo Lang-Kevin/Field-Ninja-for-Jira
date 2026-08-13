@@ -28,6 +28,7 @@ const SHOW_ALL_BUTTON_ID = 'show-all-button';
 type PopupState = 'S0' | 'S1' | 'S2' | 'S3' | 'S4' | 'S5';
 
 let latestResponse: GetFieldsResponse | undefined;
+let coverHeightDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 
 function setHidden(el: Element | null, hidden: boolean): void {
   el?.classList.toggle('jfv-hidden', hidden);
@@ -229,12 +230,21 @@ async function init(): Promise<void> {
     }
     if (coverHeightInput) {
       coverHeightInput.value = String(settings.coverHeightPx);
-      coverHeightInput.addEventListener('change', () => {
+      const commit = (): void => {
         const value = Number(coverHeightInput.value);
-        if (Number.isNaN(value)) {
-          return;
-        }
-        void saveSettings({ coverHeightPx: value });
+        const clamped = Math.min(600, Math.max(20, Number.isNaN(value) ? 20 : value));
+        coverHeightInput.value = String(clamped);
+        void saveSettings({ coverHeightPx: clamped });
+      };
+      coverHeightInput.addEventListener('change', () => {
+        clearTimeout(coverHeightDebounceTimer);
+        commit();
+      });
+      // ponytail: also commit on input (debounced) so a value survives the
+      // popup closing before `change` fires — no per-keystroke writes.
+      coverHeightInput.addEventListener('input', () => {
+        clearTimeout(coverHeightDebounceTimer);
+        coverHeightDebounceTimer = setTimeout(commit, 400);
       });
     }
   }

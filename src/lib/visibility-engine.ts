@@ -218,8 +218,9 @@ let coverStyleEl: HTMLStyleElement | null = null;
  * cover height). Clamps to a sane range as the single validation point for
  * the popup's number input.
  *
- * ponytail: aria-label match — breaks on a non-English Jira UI; switch to a
- * data-testid anchor if one shows up in the real DOM.
+ * ponytail: aria-label suffix match — breaks on a non-English Jira UI, and
+ * still assumes the label ends in "cover"; switch to a data-testid anchor
+ * once the live DOM is inspected.
  */
 export function syncCoverStyle(heightPx: number | null): void {
   if (!coverStyleEl) {
@@ -232,7 +233,7 @@ export function syncCoverStyle(heightPx: number | null): void {
       ? ''
       : (() => {
           const clamped = Math.min(600, Math.max(20, heightPx));
-          return `[role="img"][aria-label*="cover" i] {\n  height: ${clamped}px !important;\n  min-height: 0 !important;\n  max-height: ${clamped}px !important;\n}`;
+          return `[role="img"][aria-label$="cover" i] {\n  height: ${clamped}px !important;\n  min-height: 0 !important;\n  max-height: ${clamped}px !important;\n}`;
         })();
   if (coverStyleEl.textContent !== text) {
     coverStyleEl.textContent = text;

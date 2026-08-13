@@ -13,7 +13,8 @@
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
     "test:watch": "vitest",
-    "seed:jira": "node scripts/jira-seed.mjs"
+    "seed:jira": "node scripts/jira-seed.mjs",
+    "e2e:chrome": "node scripts/pw-real.mjs fieldninjaforjira.atlassian.net"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.268",

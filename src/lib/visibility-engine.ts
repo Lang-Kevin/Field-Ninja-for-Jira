@@ -220,7 +220,14 @@ let coverStyleEl: HTMLStyleElement | null = null;
  *
  * ponytail: aria-label suffix match — breaks on a non-English Jira UI, and
  * still assumes the label ends in "cover"; switch to a data-testid anchor
- * once the live DOM is inspected.
+ * once the live DOM is inspected. Only the cover's direct parent is
+ * resized, not the grandparent: a `:has(> * > …)` grandparent rule matches
+ * whatever ancestor sits two levels up, which in the live issue header is
+ * NOT a cover-only wrapper — it's the shared header container that also
+ * holds the summary heading and field rows, so collapsing it took those
+ * down too. If Jira ever wraps the cover one level deeper than
+ * `wrapper > img`, this needs re-measuring against the live DOM rather than
+ * widening the ancestor reach again.
  */
 export function syncCoverStyle(heightPx: number | null): void {
   if (!coverStyleEl) {
@@ -233,13 +240,9 @@ export function syncCoverStyle(heightPx: number | null): void {
       ? ''
       : (() => {
           const clamped = Math.min(600, Math.max(20, heightPx));
-          // ponytail: two ancestor levels covers the current Jira markup
-          // (wrapper > img, wrapper > row > img); if Jira nests the cover
-          // deeper, this depth has to be raised.
           return (
             `[role="img"][aria-label$="cover" i] {\n  height: ${clamped}px !important;\n  min-height: 0 !important;\n  max-height: ${clamped}px !important;\n}\n` +
-            `:has(> [role="img"][aria-label$="cover" i]),\n` +
-            `:has(> * > [role="img"][aria-label$="cover" i]) {\n  height: ${clamped}px !important;\n  min-height: 0 !important;\n  max-height: ${clamped}px !important;\n}`
+            `:has(> [role="img"][aria-label$="cover" i]) {\n  height: ${clamped}px !important;\n  min-height: 0 !important;\n  max-height: ${clamped}px !important;\n}`
           );
         })();
   if (coverStyleEl.textContent !== text) {

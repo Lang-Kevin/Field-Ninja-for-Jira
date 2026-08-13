@@ -230,21 +230,23 @@ async function init(): Promise<void> {
     }
     if (coverHeightInput) {
       coverHeightInput.value = String(settings.coverHeightPx);
-      const commit = (): void => {
+      // ponytail: writeBack only on `change` — rewriting the field mid-typing would
+      // turn a paused "5" into "20" and the next keystroke into "200".
+      const commit = (writeBack: boolean): void => {
         const value = Number(coverHeightInput.value);
         const clamped = Math.min(600, Math.max(20, Number.isNaN(value) ? 20 : value));
-        coverHeightInput.value = String(clamped);
+        if (writeBack) coverHeightInput.value = String(clamped);
         void saveSettings({ coverHeightPx: clamped });
       };
       coverHeightInput.addEventListener('change', () => {
         clearTimeout(coverHeightDebounceTimer);
-        commit();
+        commit(true);
       });
       // ponytail: also commit on input (debounced) so a value survives the
       // popup closing before `change` fires — no per-keystroke writes.
       coverHeightInput.addEventListener('input', () => {
         clearTimeout(coverHeightDebounceTimer);
-        coverHeightDebounceTimer = setTimeout(commit, 400);
+        coverHeightDebounceTimer = setTimeout(() => commit(false), 400);
       });
     }
   }

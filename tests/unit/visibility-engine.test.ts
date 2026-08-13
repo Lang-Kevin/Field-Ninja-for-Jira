@@ -34,7 +34,7 @@ beforeEach(() => {
   (globalThis as any).chrome = { storage: { sync: mockStorage } };
 });
 
-import { computeVisibilityDiff, toggleField } from '../../src/lib/visibility-engine';
+import { computeVisibilityDiff, toggleField, syncCoverStyle } from '../../src/lib/visibility-engine';
 import { PREFS_STORAGE_KEY } from '../../src/types/prefs';
 import type { FieldMeta } from '../../src/types/field-meta';
 
@@ -156,5 +156,26 @@ describe('toggleField', () => {
     toggleField(field, true);
 
     expect(isHidden(field.containerNode)).toBe(false);
+  });
+});
+
+describe('syncCoverStyle', () => {
+  it('writes a rule containing the given height', () => {
+    syncCoverStyle(120);
+    const styleEl = document.getElementById('jfv-cover-style');
+    expect(styleEl?.textContent).toContain('120px');
+  });
+
+  it('empties the rule when passed null', () => {
+    syncCoverStyle(120);
+    syncCoverStyle(null);
+    const styleEl = document.getElementById('jfv-cover-style');
+    expect(styleEl?.textContent).toBe('');
+  });
+
+  it('clamps a too-small height to the minimum', () => {
+    syncCoverStyle(5);
+    const styleEl = document.getElementById('jfv-cover-style');
+    expect(styleEl?.textContent).toContain('20px');
   });
 });

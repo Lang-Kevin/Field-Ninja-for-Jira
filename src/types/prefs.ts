@@ -46,8 +46,15 @@ export const LEGACY_PREFS_KEYS = ['jiraFieldVisibility:v1', 'jiraFieldVisibility
 export interface Settings {
   showFieldButtons: boolean;
   debugOutline: boolean;
+  shrinkCover: boolean;
+  coverHeightPx: number;
 }
 
 export const SETTINGS_STORAGE_KEY = 'jiraFieldVisibility:settings:v1';
 
-export const DEFAULT_SETTINGS: Settings = { showFieldButtons: true, debugOutline: false };
+export const DEFAULT_SETTINGS: Settings = {
+  showFieldButtons: true,
+  debugOutline: false,
+  shrinkCover: false,
+  coverHeightPx: 80,
+};

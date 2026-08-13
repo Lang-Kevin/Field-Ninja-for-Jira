@@ -12,6 +12,8 @@ import type { GetFieldsResponse } from '../types/messages';
 
 const SHOW_BUTTONS_CHECKBOX_ID = 'show-buttons-checkbox';
 const DEBUG_OUTLINE_CHECKBOX_ID = 'debug-outline-checkbox';
+const SHRINK_COVER_CHECKBOX_ID = 'shrink-cover-checkbox';
+const COVER_HEIGHT_INPUT_ID = 'cover-height-input';
 const STATUS_MESSAGE_ID = 'status-message';
 const SCOPE_BAR_ID = 'scope-bar';
 const SCOPE_LABEL_ID = 'scope-label';
@@ -193,7 +195,13 @@ async function init(): Promise<void> {
   const debugOutlineCheckbox = document.getElementById(
     DEBUG_OUTLINE_CHECKBOX_ID
   ) as HTMLInputElement | null;
-  if (showButtonsCheckbox || debugOutlineCheckbox) {
+  const shrinkCoverCheckbox = document.getElementById(
+    SHRINK_COVER_CHECKBOX_ID
+  ) as HTMLInputElement | null;
+  const coverHeightInput = document.getElementById(
+    COVER_HEIGHT_INPUT_ID
+  ) as HTMLInputElement | null;
+  if (showButtonsCheckbox || debugOutlineCheckbox || shrinkCoverCheckbox || coverHeightInput) {
     const settings = await loadSettings();
     if (showButtonsCheckbox) {
       showButtonsCheckbox.checked = settings.showFieldButtons;
@@ -205,6 +213,28 @@ async function init(): Promise<void> {
       debugOutlineCheckbox.checked = settings.debugOutline;
       debugOutlineCheckbox.addEventListener('change', () => {
         void saveSettings({ debugOutline: debugOutlineCheckbox.checked });
+      });
+    }
+    if (shrinkCoverCheckbox) {
+      shrinkCoverCheckbox.checked = settings.shrinkCover;
+      if (coverHeightInput) {
+        coverHeightInput.disabled = !settings.shrinkCover;
+      }
+      shrinkCoverCheckbox.addEventListener('change', () => {
+        void saveSettings({ shrinkCover: shrinkCoverCheckbox.checked });
+        if (coverHeightInput) {
+          coverHeightInput.disabled = !shrinkCoverCheckbox.checked;
+        }
+      });
+    }
+    if (coverHeightInput) {
+      coverHeightInput.value = String(settings.coverHeightPx);
+      coverHeightInput.addEventListener('change', () => {
+        const value = Number(coverHeightInput.value);
+        if (Number.isNaN(value)) {
+          return;
+        }
+        void saveSettings({ coverHeightPx: value });
       });
     }
   }

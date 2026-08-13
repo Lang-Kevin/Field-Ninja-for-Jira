@@ -23,7 +23,7 @@ import {
 } from '../lib/storage-service';
 import { makePrefKey, makeScopeKey, fieldLabelKey, tabCacheKey, sectionCacheKey } from '../types/prefs';
 import type { ActivationStore } from '../types/prefs';
-import { computeVisibilityDiff, computeHiddenSelectors, computeHiddenTabs, computeHiddenSections, syncHiddenStylesheet, writeHiddenAttr } from '../lib/visibility-engine';
+import { computeVisibilityDiff, computeHiddenSelectors, computeHiddenTabs, computeHiddenSections, syncHiddenStylesheet, syncCoverStyle, writeHiddenAttr } from '../lib/visibility-engine';
 import { mountFieldToggle } from '../lib/ui-overlay';
 import { observeRoot, markOwnMutation } from '../lib/dom-observer';
 import { isGetFieldsMessage } from '../types/messages';
@@ -77,6 +77,7 @@ function recomputeActive(): void {
  */
 function teardownPageEffects(): void {
   syncHiddenStylesheet([]);
+  syncCoverStyle(null);
   markOwnMutation(() => {
     for (const node of Array.from(document.querySelectorAll('[data-jfv-hidden="true"]'))) {
       node.removeAttribute('data-jfv-hidden');
@@ -131,6 +132,9 @@ let onIssuePage = false;
 
 /** Whether per-field eye toggle buttons should be mounted on the page, per the popup's setting. */
 let showFieldButtons = true;
+
+/** Cover height (px) to apply, or null when the shrink-cover setting is off. */
+let coverHeightPx: number | null = null;
 
 /**
  * In-memory cache of the current issue type's hidden-field-id set. This is
@@ -353,6 +357,7 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
       ...persistedTabSelectors,
       ...persistedSectionSelectors,
     ]);
+    syncCoverStyle(coverHeightPx);
 
     markOwnMutation(() => {
       for (const entry of computeVisibilityDiff(fields, hiddenSet)) {
@@ -557,11 +562,15 @@ function init(): void {
   // so toggling this class is a no-op when the extension is inactive.
   void loadSettings().then((settings) => {
     showFieldButtons = settings.showFieldButtons;
+    coverHeightPx = settings.shrinkCover ? settings.coverHeightPx : null;
+    syncCoverStyle(coverHeightPx);
     markOwnMutation(() => document.body.classList.toggle('jfv-debug', !!settings.debugOutline));
     if (onIssuePage) void render(listAll(getIssueRoot()));
   });
   onSettingsChanged((settings) => {
     showFieldButtons = settings.showFieldButtons;
+    coverHeightPx = settings.shrinkCover ? settings.coverHeightPx : null;
+    syncCoverStyle(coverHeightPx);
     markOwnMutation(() => document.body.classList.toggle('jfv-debug', !!settings.debugOutline));
     if (onIssuePage) void render(listAll(getIssueRoot()));
   });

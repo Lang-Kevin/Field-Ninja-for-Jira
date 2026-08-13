@@ -166,6 +166,14 @@ describe('syncCoverStyle', () => {
     expect(styleEl?.textContent).toContain('120px');
   });
 
+  it('also writes an ancestor :has() rule collapsing the cover wrapper', () => {
+    syncCoverStyle(120);
+    const styleEl = document.getElementById('jfv-cover-style');
+    expect(styleEl?.textContent).toContain(':has(> [role="img"][aria-label$="cover" i])');
+    expect(styleEl?.textContent).toContain(':has(> * > [role="img"][aria-label$="cover" i])');
+    expect(styleEl?.textContent?.match(/120px/g)?.length).toBe(4);
+  });
+
   it('empties the rule when passed null', () => {
     syncCoverStyle(120);
     syncCoverStyle(null);

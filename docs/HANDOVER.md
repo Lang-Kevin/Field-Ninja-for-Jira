@@ -1,31 +1,58 @@
 # Handover — 2026-08-13
 
-State: branch `feat/site-scoped-activation` pushed to origin, version **0.3.0**, package
-`field-ninja-0.3.0.zip` built at the repo root. `npm run build` clean, `npx vitest run` 126/0.
+State: branch `feat/site-scoped-activation`, version **0.3.0**. `npm run build` clean,
+`npx vitest run` 129/0.
 
 Everything in the shrink-cover feature is implemented, reviewed (final whole-branch review plus two
 fix rounds) and documented in `docs/CHANGELOG.md` `[0.3.0]`. Two things are still open.
 
+**`field-ninja-0.3.0.zip` at the repo root is stale** — it predates `9e18c88`, `e4692f4` and
+`b23dac3`, so it ships without the race fix and without the locale fix. Rebuild before any CWS
+upload.
+
+`main` has been fast-forwarded to `e4692f4`; this branch is ahead of it by the cover-selector fix
+and these docs. `feat/firefox-port` also branches off `e4692f4` and carries a copy of this file.
+
 ---
 
-## Open point 1 — the cover selector is unverified against the live Jira DOM
+## Open point 1 — cover selector — **selector fixed, browser check still open**
+
+**Measured against the live German Jira on 2026-08-13.** Assumption 1 below was **broken** and is
+now fixed in `b23dac3`; assumption 2 **held** and is unchanged. What remains open is only the
+visual confirmation in the browser (the script under "How to verify").
 
 **Why it matters.** `syncCoverStyle()` in `src/lib/visibility-engine.ts` shrinks the cover by
 injecting a `<head>` stylesheet with two rules:
 
 ```css
-[role="img"][aria-label$="cover" i]                { height/min-height/max-height: <N>px !important }
-:has(> [role="img"][aria-label$="cover" i])        { height/min-height/max-height: <N>px !important }
+div[role="img"][aria-label]:empty              { height/min-height/max-height: <N>px !important }
+:has(> div[role="img"][aria-label]:empty)      { height/min-height/max-height: <N>px !important }
 ```
 
 The second rule collapses the cover's **direct parent** so the reserved space disappears and the
-summary moves up. Both rules rest on two assumptions that no automated test in this repo can check:
+summary moves up. The two assumptions these rest on, and what the live page said:
 
-1. The live cover element's `aria-label` **ends in** "cover" (real value seen so far: `Work item cover`).
-   A non-English Jira UI breaks this — the `ponytail:` comment on the function says so.
-2. The element holding the reserved vertical space is the cover's **direct parent**
-   (`css-1q0r35z` in the DOM the user pasted). Emotion class hashes are build-generated and must
-   never be used as selectors, which is why `:has()` is used instead.
+1. ~~The live cover element's `aria-label` **ends in** "cover"~~ — **false on any non-English Jira.**
+   The German label is `Vorgangstitelbild`, which contains no "cover" substring at all, so the
+   feature was silently a no-op on every localized instance. A per-locale suffix list is not viable
+   (Jira ships ~25 languages). Replaced with a **structural** match that reads no label text: on the
+   live page the cover was the only `div[role="img"]` that *has* an `aria-label` and has zero
+   children (1031×120); all 15 others were assignee avatars with `aria-label` **absent** and 2
+   children each (28×28). No usable `data-testid` exists on the cover or its first two ancestors —
+   the nearest is `issue.views.issue-details.issue-layout.issue-layout` at height 830, i.e. exactly
+   the container `4e48772` broke. Do not anchor there.
+2. The element holding the reserved vertical space is the cover's **direct parent** — **confirmed**:
+   the direct parent measured height 120, matching the cover's own 1031×120. Emotion class hashes
+   (`css-1q0r35z`) are build-generated and must never be used as selectors, which is why `:has()`
+   is used instead.
+
+**Known residual risk** (review finding, accepted): the structural selector is not scoped to the
+issue header, so any *other* empty `div[role="img"]` carrying an `aria-label` would also be
+shrunk. Jira renders icon badges with an `<svg>` child, which `:empty` excludes, and the live page
+showed zero collisions across all 16 `div[role="img"]` elements. Scoping to the issue-layout
+`data-testid` was rejected: that is the container from `4e48772`, and it may be absent in the board
+modal — scoping wrongly would silently reintroduce the exact no-op bug just fixed. **Step 7 of the
+verification script is what detects this**; treat it as load-bearing, not a formality.
 
 **History — do not repeat this.** Commit `4e48772` also targeted the *grandparent*
 (`:has(> * > …)`). In the live page that collapsed the shared header container and hid the summary
@@ -55,17 +82,22 @@ the extension and cannot see any of this (see `CLAUDE.md`). Hand the user this s
    selectors and tracks the current setting.
 7. Check nothing *else* got squashed — header actions, breadcrumbs, the field list below.
 
-**If it fails**, collect from the live page and report back:
+**If it fails**, collect from the live page and report back — note this enumerates *all* candidates
+rather than assuming a label, which is how the locale bug above was found:
 
 ```js
-const c = document.querySelector('[role="img"][aria-label*="cover" i]');
-c.getAttribute('aria-label');
-c.dataset.testid;
-// walk up 3 levels: tag, data-testid, and getBoundingClientRect().height for each
+[...document.querySelectorAll('div[role="img"]')].forEach((e, i) => {
+  const r = e.getBoundingClientRect();
+  console.log(i, JSON.stringify(e.getAttribute('aria-label')), `${r.width|0}x${r.height|0}`,
+              'kids', e.childNodes.length, e.dataset.testid);
+});
+// then, on whichever index is the cover, walk up 5 levels logging
+// tag, data-testid, and getBoundingClientRect().height for each
 ```
 
-The fix is then to swap the `aria-label` match for whatever stable `data-testid` Jira exposes, and
-to point the ancestor rule at whichever level actually owns the height.
+If the cover matches but the space does not collapse, the fix is a **better anchor**, not a deeper
+one — see the grandparent table above. If an unrelated element got squashed, narrow the selector
+(scope it to a stable ancestor that is *not* the issue-layout container), do not loosen it.
 
 ---
 

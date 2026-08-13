@@ -155,6 +155,16 @@ let coverHeightPx: number | null = null;
 let currentHiddenFieldIds: Set<string> = new Set();
 
 /**
+ * Monotonic generation counter guarding loadHiddenFieldIdsAndRender's async
+ * gap: several call sites can overlap (init, activation change, issue-type
+ * change, the onPrefsChanged settle path), and their storage reads have no
+ * guaranteed resolve order. Each call captures its own generation and bails
+ * before applying results if a newer call has since started — last-call-wins
+ * instead of last-to-resolve-wins.
+ */
+let renderGen = 0;
+
+/**
  * Map from containerNode → cleanup fn for all currently-mounted per-field
  * toggle buttons. Keyed by the actual DOM node so we can skip remounting
  * buttons that are already live (avoids DOM churn inside field containers
@@ -491,10 +501,13 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
 /**
  * Pulls prefs for the current issue type from storage into the in-memory
  * cache, then re-renders. This is the ONLY path that reads storage directly
- * — called on init and on issue-type change, never from the DOM-mutation
- * rescan (see module doc below for the race this avoids).
+ * — called from init, activation changes, issue-type changes, and the
+ * onPrefsChanged settle path, never from the DOM-mutation rescan (see module
+ * doc below for the race this avoids). Guarded by renderGen since several of
+ * those call sites can overlap.
  */
 async function loadHiddenFieldIdsAndRender(): Promise<void> {
+  const gen = ++renderGen;
   try {
     if (currentProjectKey) {
       const tabKey = tabCacheKey(currentHost, currentProjectKey, currentIssueTypeId);
@@ -504,18 +517,21 @@ async function loadHiddenFieldIdsAndRender(): Promise<void> {
         getPref(currentHost, currentProjectKey, currentIssueTypeId),
         chrome.storage.local.get([tabKey, sectionKey, labelKey]),
       ]);
+      if (gen !== renderGen) return;
       currentHiddenFieldIds = new Set(pref.hiddenFieldIds);
       tabFieldMap = (local[tabKey] as Record<string, string[]>) ?? {};
       sectionFieldMap = (local[sectionKey] as Record<string, string[]>) ?? {};
       labelById = (local[labelKey] as Record<string, string>) ?? {};
     } else {
       const pref = await getPref(currentHost, currentProjectKey, currentIssueTypeId);
+      if (gen !== renderGen) return;
       currentHiddenFieldIds = new Set(pref.hiddenFieldIds);
       tabFieldMap = {};
       sectionFieldMap = {};
       labelById = {};
     }
   } catch {
+    if (gen !== renderGen) return;
     currentHiddenFieldIds = new Set();
     tabFieldMap = {};
     sectionFieldMap = {};

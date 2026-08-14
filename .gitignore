@@ -31,3 +31,5 @@ test-results/
 auth.json
 .env
 .firefox-jira-profile/
+field-ninja.xpi
+.ff-spike-profile/

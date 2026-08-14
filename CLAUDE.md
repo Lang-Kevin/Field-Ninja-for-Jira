@@ -37,13 +37,32 @@ Plans created in plan mode for this project must always be saved inside the proj
 
 Always use the cheapest model when working with Playwright in combination with `/caveman`.
 
-## Browser Testing (Claude for Chrome)
+## Browser Testing
 
-Test the extension with **Claude for Chrome**, driven in the user's real Chrome — it has the unpacked `dist/` extension loaded and a live authenticated Jira session, so it sees the actual extension runtime (toggle icons, content-script console). This is the only way to observe the built extension in situ.
+Scripted headless verification is `npm run e2e` — runs the shared 20-check
+real-tenant suite against `fieldninjaforjira.atlassian.net` in both Chrome
+(`scripts/pw-real.mjs`, Playwright-core) and Firefox (`scripts/e2e-firefox.mjs`,
+Puppeteer BiDi), driving the actual built `dist/`/`dist-firefox/` extension.
+Each browser profile needs a one-time manual login (see `docs/TESTPLAN.md`
+§2); after that both runners are fully headless. Prefer `npm run e2e` for
+anything the 20 checks cover — see `docs/TESTPLAN.md` for the check list and
+manual fallback checklist.
 
-`agent-browser` does NOT work for this project: it launches a clean Chromium without the extension, so it can only inspect Jira's DOM, never the extension's own behaviour. Do not use it to verify extension UI.
+**Claude for Chrome**, driven in the user's real Chrome, remains the tool for
+exploratory/visual checks and anything the 20 checks do not cover — it has
+the unpacked `dist/` extension loaded and a live authenticated Jira session,
+so it sees the actual extension runtime (toggle icons, content-script
+console).
 
-The main session cannot drive Claude for Chrome directly — hand the user a precise, self-contained test script (URL + exact checks: `.jfv-field-toggle` count, `window.__jfvLoaded`, any `[jfv]` console errors) and have the results relayed back.
+`agent-browser` and **Playwright MCP** do NOT work for this project: both
+launch a browser without `--load-extension`, so they can only inspect Jira's
+DOM, never the extension's own behaviour. Do not use either to verify
+extension UI.
+
+When handing exploratory checks to Claude for Chrome (which the main session
+cannot drive directly), give a precise, self-contained test script (URL +
+exact checks: `.jfv-field-toggle` count, `window.__jfvLoaded`, any `[jfv]`
+console errors) and have the results relayed back.
 
 ---
 

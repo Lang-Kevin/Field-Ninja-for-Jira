@@ -127,6 +127,7 @@ Anmerkung: `applyVisibility` existiert nicht mehr (entfernt in `09fe599`, s. `do
 - Unit `jira-context-resolver`: `isEligibleUrl`-Matrix inkl. Suffix-Spoof, `undefined`, `/issuesfoo` (false) und `/issues/` (true); lowercase `host`; Pfad-Fallback-ProjectKey.
 - Integration (Puppeteer): laufen durch das **echte** Gate, Activations werden im Harness geseedet (`tests/integration/setup.ts:49-73`); frisches Profil pro Datei, `fileParallelism: false`.
 - Manuell nur über **Claude for Chrome** (echtes Profil + geladene `dist/`); `agent-browser` untauglich (`CLAUDE.md`).
+- Real-Tenant-E2E (Chrome + Firefox, `fieldninjaforjira.atlassian.net`): deckt Aktivierung, Per-Issue-Type-Isolation, Scope-Isolation, Settings und Chrome/Firefox-Build-Parität ab; siehe `docs/TESTPLAN.md`.
 
 ## 11. Änderungspolitik
 - Spec-Änderung = eigener Commit, Begründung in `docs/CHANGELOG.md`.

@@ -494,7 +494,7 @@ process.exitCode = failed.length ? 1 : 0;
 
 Note: the popup checks (2, 3, 4) need `readPopup(popup, popupUrl, issue)` semantics — bring the Jira tab to front, then reload the popup. Expose that as a driver-optional hook `d.refreshPopup?.(popup, jiraPage)` so the Firefox driver can supply its own equivalent; call it in `runChecks` before reading popup state, guarded with `?.`.
 
-- [ ] **Step 4: Run the Chrome suite**
+- [ ] **Step 4: Run the Chrome suite** — BLOCKED: braucht den einmaligen manuellen Jira-Login
 
 ```bash
 npm run build
@@ -542,14 +542,14 @@ extraPrefsFirefox: {
 ```
 Then `moz-extension://f1e1d1a1-1111-4111-8111-111111111111/popup.html` is stable.
 
-- [ ] **Step 1: Bump Puppeteer**
+- [x] **Step 1: Bump Puppeteer**
 
 ```bash
 npm install --save-dev puppeteer@^24
 npx puppeteer browsers install firefox
 ```
 
-- [ ] **Step 2: Verify the bump broke nothing — run the existing suites**
+- [x] **Step 2: Verify the bump broke nothing — run the existing suites**
 
 ```bash
 npm run build
@@ -557,7 +557,7 @@ npm test
 ```
 Expected: all 7 unit + 10 integration specs still pass. If `tests/integration/setup.ts` breaks on the new API, fix it there (`puppeteer.launch` options at `:42-48`) before continuing — do not proceed with a red suite.
 
-- [ ] **Step 3: Write the Firefox launcher**
+- [x] **Step 3: Write the Firefox launcher**
 
 ```js
 // Firefox counterpart to pw-real.mjs. Same assertions, same tenant, headless.
@@ -639,7 +639,7 @@ try {
 }
 ```
 
-- [ ] **Step 4: Log in once, headed**
+- [ ] **Step 4: Log in once, headed** — BLOCKED: braucht den einmaligen manuellen Jira-Login
 
 The Firefox profile starts with no Atlassian session. Run once with `--headed`, log into the tenant manually, close the window; `.firefox-jira-profile/` then carries the session (add it to `.gitignore` — it holds real cookies).
 
@@ -648,7 +648,7 @@ npm run build:firefox
 node scripts/e2e-firefox.mjs --headed
 ```
 
-- [ ] **Step 5: Run headless**
+- [ ] **Step 5: Run headless** — BLOCKED: siehe Step 4
 
 ```bash
 node scripts/e2e-firefox.mjs
@@ -659,14 +659,14 @@ Known divergences to expect and investigate rather than paper over: the MV3 back
 
 If `browser.installExtension` is unavailable or throws on the installed Puppeteer version, stop and report it — do not fall back silently. The documented fallback is `npx web-ext run --source-dir dist-firefox` with the manual checklist from Task 4, which is not headless and must be an explicit user decision.
 
-- [ ] **Step 6: Add npm scripts**
+- [x] **Step 6: Add npm scripts**
 
 ```json
 "e2e:firefox": "node scripts/e2e-firefox.mjs",
 "e2e": "npm run build && npm run build:firefox && npm run e2e:chrome && npm run e2e:firefox"
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add scripts/e2e-firefox.mjs package.json package-lock.json .gitignore
@@ -682,7 +682,7 @@ git commit -m "test: headless Firefox e2e via puppeteer BiDi"
 - Modify: `docs/SPEC.md` §10 (test contract — add the real-tenant layer)
 - Modify: `CLAUDE.md` (Browser Testing section — record that headless real-tenant e2e now exists)
 
-- [ ] **Step 1: Write `docs/TESTPLAN.md`**
+- [x] **Step 1: Write `docs/TESTPLAN.md`**
 
 Contents, in this order:
 
@@ -695,11 +695,11 @@ Contents, in this order:
 7. **Manual fallback checklist** — the same 20 checks phrased as human steps, for use when automation is blocked.
 8. **Tenant reset** — re-running `npm run seed:jira` after a wipe restores the shape; `tests/tenant.json` must be re-committed if keys changed.
 
-- [ ] **Step 2: Update `docs/SPEC.md` §10**
+- [x] **Step 2: Update `docs/SPEC.md` §10**
 
 Add a bullet to the test contract: real-tenant e2e covers activation, per-issue-type isolation, scope isolation, settings, and Chrome/Firefox parity against `fieldninjaforjira.atlassian.net`; see `docs/TESTPLAN.md`.
 
-- [ ] **Step 3: Update `CLAUDE.md` → Browser Testing**
+- [x] **Step 3: Update `CLAUDE.md` → Browser Testing**
 
 The current text says Claude for Chrome is the only way to observe the built extension. That is now false for the scripted checks. Amend it to: scripted headless verification is `npm run e2e` (Chrome + Firefox, real tenant); Claude for Chrome remains the tool for exploratory/visual checks and anything the 20 checks do not cover. Leave the `agent-browser` warning in place and extend it to Playwright MCP.
 

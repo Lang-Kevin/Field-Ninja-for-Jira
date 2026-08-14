@@ -19,6 +19,7 @@
 // Requires a fresh build:  npm run build
 import { chromium } from 'playwright-core';
 import { runChecks } from './e2e-checks.mjs';
+import { loginIfNeeded } from './e2e-login.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -74,18 +75,39 @@ let ctx = await launch(!argv.includes('--headed'));
   await p.goto(`${ORIGIN}/jira/your-work`, { waitUntil: 'domcontentloaded' });
   await p.waitForTimeout(3000);
   if (!(await hasSession(ctx))) {
-    console.log(`\n>>> Kein Login im Profil. Öffne ein Fenster für ${host} — bitte dort anmelden (max 10 min).\n`);
+    console.log(`\n>>> Kein Login im Profil. Öffne ein Fenster für ${host} und versuche Auto-Login via auth.json.\n>>> Falls das scheitert (MFA/Captcha): bitte im Fenster manuell anmelden (max 10 min).\n`);
     await ctx.close();
     ctx = await launch(false);
     const lp = ctx.pages()[0] ?? (await ctx.newPage());
     await lp.goto(`${ORIGIN}/jira/your-work`, { waitUntil: 'domcontentloaded' });
-    const deadline = Date.now() + 600000;
-    while (!(await hasSession(ctx))) {
-      if (Date.now() > deadline) {
-        await ctx.close();
-        throw new Error('login timeout');
+
+    const autoLoggedIn = await loginIfNeeded({
+      page: lp,
+      hasSession: () => hasSession(ctx),
+      sleep: (ms) => lp.waitForTimeout(ms),
+      type: (sel, text) => lp.fill(sel, text),
+      click: (sel) => lp.click(sel),
+      waitFor: (sel, timeoutMs) =>
+        lp
+          .waitForSelector(sel, { timeout: timeoutMs })
+          .then(() => true)
+          .catch(() => false),
+    });
+
+    if (!autoLoggedIn) {
+      // ponytail: Beleg, woran der Auto-Login hing (Account-Chooser? MFA? Captcha?).
+      await lp.screenshot({ path: path.join(ROOT, 'login-debug.png') }).catch(() => {});
+      console.log('>>> Auto-Login griff nicht — Screenshot: login-debug.png\n');
+      const deadline = Date.now() + 600000;
+      while (!(await hasSession(ctx))) {
+        if (Date.now() > deadline) {
+          await ctx.close();
+          throw new Error(
+            'login timeout — auto-login fehlgeschlagen (fehlende/falsche auth.json, MFA oder Captcha?). Mit --headed laufen lassen und manuell anmelden.'
+          );
+        }
+        await lp.waitForTimeout(3000);
       }
-      await lp.waitForTimeout(3000);
     }
     console.log('>>> Angemeldet. Nächster Lauf startet headless.\n');
   }
@@ -121,7 +143,9 @@ try {
     goto: (p, url) => p.goto(url, { waitUntil: 'domcontentloaded' }),
     wait: (p, ms) => p.waitForTimeout(ms),
     count: (p, sel) => p.locator(sel).count(),
-    click: (p, sel) => p.locator(sel).first().click(),
+    // ponytail: Toggle-Buttons überlappen sich im echten Jira-Layout, ein
+    // Koordinaten-Klick trifft dann den Nachbarn. Direkt aufs Element klicken.
+    click: (p, sel) => p.locator(sel).first().dispatchEvent('click'),
     text: (p, sel) => p.locator(sel).first().innerText().catch(() => '').then((t) => t.trim()),
     visible: (p, sel) => p.locator(sel).first().isVisible().catch(() => false),
     evalPage: (p, fn) => p.evaluate(fn),

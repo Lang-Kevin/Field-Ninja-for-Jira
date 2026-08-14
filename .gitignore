@@ -21,6 +21,8 @@ graphify-out/
 # Local tooling lockfile / manual QA screenshots — not needed for development
 skills-lock.json
 *-fix.png
+# Login-Fehlschlag-Screenshots der e2e-Runner: zeigen die getippte E-Mail
+login-debug*.png
 
 # Test run artifacts
 test-results/

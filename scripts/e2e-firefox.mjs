@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runChecks } from './e2e-checks.mjs';
+import { loginIfNeeded } from './e2e-login.mjs';
 
 const ROOT = path.resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
 const DIST = path.join(ROOT, 'dist-firefox');
@@ -75,13 +76,38 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await p.goto(`${ORIGIN}/jira/your-work`, { waitUntil: 'domcontentloaded' });
   await sleep(3000);
   if (!(await hasSession())) {
-    await browser.close();
-    console.error(
-      HEADED
-        ? `\n>>> Kein Login im Profil für ${tenant.host} — bitte im Fenster anmelden und erneut starten.\n`
-        : '\n>>> Kein Login im .firefox-jira-profile/. Einmalig `node scripts/e2e-firefox.mjs --headed` laufen lassen und dort anmelden.\n'
-    );
-    process.exit(1);
+    const autoLoggedIn = await loginIfNeeded({
+      page: p,
+      hasSession,
+      sleep,
+      type: (sel, text) => p.type(sel, text),
+      click: (sel) => p.click(sel),
+      waitFor: (sel, timeoutMs) =>
+        p
+          .waitForSelector(sel, { timeout: timeoutMs })
+          .then(() => true)
+          .catch(() => false),
+    });
+    // Atlassian verlangt für dieses Konto einen MFA-Code per E-Mail — der Rest
+    // (E-Mail + Passwort) läuft automatisch. Headed: Zeit lassen, Code einzutippen.
+    if (!autoLoggedIn && HEADED) {
+      console.log('\n>>> Auto-Login hat E-Mail + Passwort gesetzt. Bitte MFA-Code im Fenster eingeben (max 10 min).\n');
+      const deadline = Date.now() + 600000;
+      while (Date.now() < deadline && !(await hasSession())) await sleep(3000);
+    }
+    if (!(await hasSession())) {
+      // ponytail: Beleg, woran der Auto-Login hing.
+      await p.screenshot({ path: path.join(ROOT, 'login-debug-firefox.png') }).catch(() => {});
+      console.error(`>>> URL beim Abbruch: ${p.url()} — Screenshot: login-debug-firefox.png`);
+      await browser.close();
+      console.error(
+        (HEADED
+          ? `\n>>> Kein Login im Profil für ${tenant.host} — bitte im Fenster anmelden und erneut starten.\n`
+          : '\n>>> Kein Login im .firefox-jira-profile/. Einmalig `node scripts/e2e-firefox.mjs --headed` laufen lassen und dort anmelden.\n') +
+          '>>> Auto-Login fehlgeschlagen (fehlende/falsche auth.json, MFA oder Captcha?). Mit --headed laufen lassen und manuell anmelden.\n'
+      );
+      process.exit(1);
+    }
   }
   await p.close();
 }
@@ -101,7 +127,8 @@ const driver = {
   goto: (p, url) => p.goto(url, { waitUntil: 'domcontentloaded' }),
   wait: (p, ms) => sleep(ms),
   count: (p, sel) => p.$$eval(sel, (els) => els.length).catch(() => 0),
-  click: (p, sel) => p.click(sel),
+  // Gleiche Overlap-Falle wie in pw-real.mjs: nicht über Koordinaten klicken.
+  click: (p, sel) => p.$eval(sel, (e) => e.click()),
   text: (p, sel) => p.$eval(sel, (e) => e.innerText.trim()).catch(() => ''),
   visible: (p, sel) => p.$eval(sel, (e) => !!e.offsetParent).catch(() => false),
   evalPage: (p, fn) => p.evaluate(fn),

@@ -494,7 +494,7 @@ process.exitCode = failed.length ? 1 : 0;
 
 Note: the popup checks (2, 3, 4) need `readPopup(popup, popupUrl, issue)` semantics — bring the Jira tab to front, then reload the popup. Expose that as a driver-optional hook `d.refreshPopup?.(popup, jiraPage)` so the Firefox driver can supply its own equivalent; call it in `runChecks` before reading popup state, guarded with `?.`.
 
-- [ ] **Step 4: Run the Chrome suite** — BLOCKED: braucht den einmaligen manuellen Jira-Login
+- [x] **Step 4: Run the Chrome suite** — grün, `chrome: 20/20 passed` (headless, 2026-08-14; Check 18 SKIP mangels Cover-Bild)
 
 ```bash
 npm run build
@@ -639,7 +639,7 @@ try {
 }
 ```
 
-- [ ] **Step 4: Log in once, headed** — BLOCKED: braucht den einmaligen manuellen Jira-Login
+- [x] **Step 4: Log in once, headed** — erledigt (Auto-Login + manueller MFA-Code)
 
 The Firefox profile starts with no Atlassian session. Run once with `--headed`, log into the tenant manually, close the window; `.firefox-jira-profile/` then carries the session (add it to `.gitignore` — it holds real cookies).
 
@@ -648,7 +648,7 @@ npm run build:firefox
 node scripts/e2e-firefox.mjs --headed
 ```
 
-- [ ] **Step 5: Run headless** — BLOCKED: siehe Step 4
+- [ ] **Step 5: Run headless** — BLOCKED: WebDriver-BiDi verweigert jede Navigation zu `moz-extension://…` ("unsupported operation … not allowed in this context"). Pref `remote.system-access-check.enabled=false` hilft nicht, Firefox exponiert kein Extension-Target zum Andocken. Entscheidung offen: geckodriver/Selenium (neues devDependency) oder Firefox aus der Skript-Ebene streichen.
 
 ```bash
 node scripts/e2e-firefox.mjs

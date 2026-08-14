@@ -3,9 +3,17 @@
 Reference doc for the real-tenant e2e layer added on `test/cross-browser-e2e`
 (plan: `docs/superpowers/plans/2026-08-13-cross-browser-testplan.md`).
 
-**Status:** the suite is built and committed, but neither browser has completed
-a full run yet. Both are blocked on their one-time manual login (see §2). Do
-not treat this doc as evidence of `20/20 passing` — that has not happened.
+**Status (2026-08-14):**
+
+- **Chrome: green.** `npm run e2e:chrome` runs headless and reports
+  `chrome: 20/20 passed` (check 18 SKIPs until the cover image of §2 exists).
+- **Firefox: blocked.** Login works, but WebDriver-BiDi refuses every
+  navigation to `moz-extension://…` with
+  `unsupported operation … not allowed in this context`, so the popup-based
+  checks cannot start. The pref `remote.system-access-check.enabled=false`
+  does not lift it, and Firefox exposes no extension target to attach to
+  instead. Open question: switch the Firefox runner to geckodriver/Selenium
+  (new devDependency) or drop Firefox from the scripted layer.
 
 ## 1. Layers
 
@@ -23,7 +31,13 @@ not treat this doc as evidence of `20/20 passing` — that has not happened.
 - Attach a cover image to `FNCM-1` by hand once (no public REST endpoint for this) — open the issue, attach any PNG, "Add cover image". Until this is done, check 18 (shrink-cover) is SKIPped, not failed.
 - One headed login per browser profile, once:
   - Chrome: `npm run e2e:chrome` — first run opens a window for login, session then persists in `.playwright-jira-profile/` (gitignored).
-  - Firefox: `node scripts/e2e-firefox.mjs --headed` — logs into the tenant manually, session then persists in `.firefox-jira-profile/` (gitignored).
+  - Firefox: `node scripts/e2e-firefox.mjs --headed` — session persists in `.firefox-jira-profile/` (gitignored).
+  - `scripts/e2e-login.mjs` fills e-mail + password from the gitignored
+    `auth.json` automatically. The account enforces **e-mail MFA**, so the
+    code itself must be typed by hand in that one headed window; the runner
+    waits up to 10 min for it. The `session.token` cookie only appears once
+    the tenant host itself has been visited — if the run ends on
+    `home.atlassian.com`, just start it again.
 - After the one-time login, both runners are fully headless.
 
 ## 3. Tenant shape

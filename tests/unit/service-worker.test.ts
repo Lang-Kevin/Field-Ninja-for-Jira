@@ -1,6 +1,17 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 
-vi.mock('../../src/lib/storage-service', () => ({ dropLegacyPrefs: vi.fn() }));
+const sw = vi.hoisted(() => {
+  const order: string[] = [];
+  const step = (name: string) =>
+    vi.fn(async () => {
+      order.push(name);
+    });
+  return {
+    order,
+    storage: { migrateV3ToV4: step('migrate'), pruneLocalCaches: step('prune'), dropLegacyPrefs: step('dropLegacy') },
+  };
+});
+vi.mock('../../src/lib/storage-service', () => sw.storage);
 
 const listeners: Record<string, (...a: any[]) => Promise<void>> = {};
 const chromeMock = {
@@ -71,5 +82,51 @@ describe('service worker icon + injection', () => {
     await listeners.updated(1, { status: 'complete' }, { url: 'https://example.com/' });
     expect((chromeMock.action.setIcon.mock.calls[0][0] as any).path[16]).toBe('icons/icon16-grey.png');
     expect(chromeMock.scripting.executeScript).not.toHaveBeenCalled();
+  });
+});
+
+describe('storage maintenance runs before reinjection (HR-3)', () => {
+  const installed = () => chromeMock.runtime.onInstalled.addListener.mock.calls[0][0] as () => Promise<void>;
+  const startup = () => chromeMock.runtime.onStartup.addListener.mock.calls[0][0] as () => Promise<void>;
+
+  beforeEach(() => {
+    sw.order.length = 0;
+    for (const f of Object.values(sw.storage)) f.mockClear();
+    chromeMock.tabs.query.mockReset().mockImplementation(async () => {
+      sw.order.push('reinject');
+      return [];
+    });
+  });
+
+  it('onInstalled: migrate → prune → dropLegacyPrefs → reinject', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await installed()();
+    expect(sw.order).toEqual(['migrate', 'prune', 'dropLegacy', 'reinject']);
+    log.mockRestore();
+  });
+
+  it('onStartup: migrate → prune → reinject', async () => {
+    await startup()();
+    expect(sw.order).toEqual(['migrate', 'prune', 'reinject']);
+  });
+
+  it('a failed migration is logged and never blocks prune or reinjection', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    sw.storage.migrateV3ToV4.mockRejectedValueOnce(new Error('quota'));
+    await startup()();
+    expect(sw.order).toEqual(['prune', 'reinject']);
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('[jfv]'), expect.any(Error));
+    err.mockRestore();
+  });
+
+  it('a failed dropLegacyPrefs is logged and never blocks reinjection', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    sw.storage.dropLegacyPrefs.mockRejectedValueOnce(new Error('IO'));
+    await installed()();
+    expect(sw.order).toEqual(['migrate', 'prune', 'reinject']);
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('[jfv]'), expect.any(Error));
+    log.mockRestore();
+    err.mockRestore();
   });
 });

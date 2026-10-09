@@ -35,7 +35,6 @@ beforeEach(() => {
 });
 
 import { computeVisibilityDiff, toggleField, syncCoverStyle } from '../../src/lib/visibility-engine';
-import { PREFS_STORAGE_KEY } from '../../src/types/prefs';
 import type { FieldMeta } from '../../src/types/field-meta';
 
 /** Flush a requestAnimationFrame-scheduled callback (happy-dom backs rAF with a timer). */

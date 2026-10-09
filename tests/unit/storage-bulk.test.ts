@@ -163,3 +163,12 @@ describe('buildExport', () => {
     expect(typeof r.data.exportedAt).toBe('string');
   });
 });
+
+describe('buildExport coverHeightPx', () => {
+  it('rounds a fractional height so the export passes validateExport', async () => {
+    sync.seed({ [SETTINGS_STORAGE_KEY]: { coverHeightPx: 125.5 } });
+    const r = validateExport(JSON.parse(JSON.stringify(await buildExport())));
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.data.settings?.coverHeightPx).toBe(126);
+  });
+});

@@ -623,6 +623,11 @@ export async function buildExport(): Promise<ExportFileV1> {
     exportedAt: new Date().toISOString(),
     prefs,
     activations: Object.keys((all[ACTIVATIONS_STORAGE_KEY] as ActivationStore | undefined) ?? {}),
-    settings: { showFieldButtons, debugOutline, shrinkCover, coverHeightPx },
+    settings: {
+      showFieldButtons,
+      debugOutline,
+      shrinkCover,
+      coverHeightPx: Math.round(Math.min(600, Math.max(20, Number(coverHeightPx) || DEFAULT_SETTINGS.coverHeightPx))),
+    },
   };
 }

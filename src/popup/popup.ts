@@ -279,7 +279,7 @@ async function init(): Promise<void> {
       // turn a paused "5" into "20" and the next keystroke into "200".
       const commit = (writeBack: boolean): void => {
         const value = Number(coverHeightInput.value);
-        const clamped = Math.min(600, Math.max(20, Number.isNaN(value) ? 20 : value));
+        const clamped = Math.round(Math.min(600, Math.max(20, Number.isNaN(value) ? 20 : value)));
         if (writeBack) coverHeightInput.value = String(clamped);
         void saveSettings({ coverHeightPx: clamped });
       };

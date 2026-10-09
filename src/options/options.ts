@@ -238,8 +238,12 @@ async function doRender(store: PrefsStore): Promise<void> {
       copyBtn.className = 'jfv-copy-btn';
       copyBtn.textContent = 'Copy to…';
       copyBtn.setAttribute('aria-expanded', 'false');
+      copyBtn.setAttribute('aria-label', `Copy to… (${pref.issueTypeId} in ${projectKey})`);
       copyBtn.addEventListener('click', () => {
-        toggleCopyPanel(pref, row, copyBtn).catch((e) => console.warn('[jfv] copy panel failed', e));
+        toggleCopyPanel(pref, row, copyBtn).catch((e) => {
+          console.warn('[jfv] copy panel failed', e);
+          showMessage(STORAGE_ERROR_ID, 'Could not load copy targets.');
+        });
       });
 
       row.appendChild(label);
@@ -293,6 +297,7 @@ async function toggleCopyPanel(src: Pref, row: HTMLElement, btn: HTMLButtonEleme
   const targets = (await listKnownBuckets()).filter(
     (t) => t.host !== src.host || t.projectKey !== src.projectKey || t.issueTypeId !== src.issueTypeId
   );
+  if (!row.isConnected || row.nextElementSibling?.classList.contains('jfv-copy-panel')) return;
 
   const panel = document.createElement('fieldset');
   panel.className = 'jfv-copy-panel';
@@ -318,9 +323,15 @@ async function toggleCopyPanel(src: Pref, row: HTMLElement, btn: HTMLButtonEleme
   confirmBtn.className = 'jfv-copy-confirm';
   confirmBtn.textContent = 'Copy';
   confirmBtn.addEventListener('click', () => {
-    copyTo(src, boxes.filter((b) => b.cb.checked).map((b) => b.t)).catch((e) =>
-      console.warn('[jfv] copy failed', e)
-    );
+    confirmBtn.disabled = true;
+    copyTo(src, boxes.filter((b) => b.cb.checked).map((b) => b.t))
+      .then((ok) => {
+        if (!ok) confirmBtn.disabled = false;
+      })
+      .catch((e) => {
+        console.warn('[jfv] copy failed', e);
+        confirmBtn.disabled = false;
+      });
   });
   const cancelBtn = document.createElement('button');
   cancelBtn.type = 'button';
@@ -329,6 +340,7 @@ async function toggleCopyPanel(src: Pref, row: HTMLElement, btn: HTMLButtonEleme
   cancelBtn.addEventListener('click', () => {
     panel.remove();
     btn.setAttribute('aria-expanded', 'false');
+    btn.focus();
   });
   actions.append(confirmBtn, cancelBtn);
   panel.appendChild(actions);
@@ -340,19 +352,23 @@ async function toggleCopyPanel(src: Pref, row: HTMLElement, btn: HTMLButtonEleme
 async function copyTo(
   src: Pref,
   targets: { host: string; projectKey: string; issueTypeId: string }[]
-): Promise<void> {
-  if (targets.length === 0) return;
+): Promise<boolean> {
   showMessage(STORAGE_ERROR_ID, null);
+  if (targets.length === 0) {
+    showMessage(STORAGE_ERROR_ID, 'Select at least one target.');
+    return false;
+  }
   showMessage(STORAGE_STATUS_ID, null);
   try {
     await writeBuckets(targets.map((t) => ({ ...t, hiddenFieldIds: src.hiddenFieldIds })), 'union');
   } catch (e) {
     console.warn('[jfv] copy failed', e);
     showMessage(STORAGE_ERROR_ID, quotaMessage(e) ?? 'Copy failed.');
-    return;
+    return false;
   }
   showMessage(STORAGE_STATUS_ID, `Copied to ${targets.length} issue type(s)`);
   void loadPrefs().then(render).catch((e) => console.warn('[jfv] reload after copy failed', e));
+  return true;
 }
 
 async function handleClearOne(

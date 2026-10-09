@@ -297,6 +297,7 @@ describe('copy to…', () => {
     panel.querySelector<HTMLButtonElement>('.jfv-copy-confirm')!.click();
     await vi.waitFor(() => expect(box('storage-status').textContent).toBe('Copied to 2 issue type(s)'));
     expect(m.writeBuckets).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(document.querySelector('.jfv-copy-panel')).toBeNull());
     expect(m.writeBuckets).toHaveBeenCalledWith(
       [
         { host: 'a.atlassian.net', projectKey: 'AAA', issueTypeId: 'story', hiddenFieldIds: ['lbl_priority'] },
@@ -311,6 +312,7 @@ describe('copy to…', () => {
     panel.querySelector<HTMLButtonElement>('.jfv-copy-confirm')!.click();
     await new Promise((r) => setTimeout(r, 0));
     expect(m.writeBuckets).not.toHaveBeenCalled();
+    expect(box('storage-error').textContent).toBe('Select at least one target.');
   });
 
   it('quota error → quotaMessage text, no status, panel stays open', async () => {
@@ -333,5 +335,19 @@ describe('copy to…', () => {
     await vi.waitFor(() => expect(document.querySelector('.jfv-copy-panel')).not.toBeNull());
     btn.click();
     expect(document.querySelector('.jfv-copy-panel')).toBeNull();
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('two fast clicks open a single panel', async () => {
+    document.body.innerHTML = PAGE;
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await vi.waitFor(() => expect(document.querySelectorAll('.jfv-copy-btn')).toHaveLength(2));
+    const btn = document.querySelector<HTMLButtonElement>('.jfv-copy-btn')!;
+    btn.click();
+    btn.click();
+    await vi.waitFor(() => expect(document.querySelector('.jfv-copy-panel')).not.toBeNull());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.querySelectorAll('.jfv-copy-panel')).toHaveLength(1);
+    expect(btn.getAttribute('aria-expanded')).toBe('true');
   });
 });

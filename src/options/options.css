@@ -69,6 +69,7 @@ h1 {
 
 .jfv-pref-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -198,7 +199,8 @@ h1 {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 16px;
-  margin: -4px 0 0;
+  min-width: 0;
+  margin: 4px 0 0;
   padding: 10px 14px 10px 28px;
   border: 1px solid #dfe1e6;
   border-radius: 4px;
@@ -212,6 +214,7 @@ h1 {
 }
 
 .jfv-copy-target {
+  overflow-wrap: anywhere;
   display: flex;
   align-items: center;
   gap: 6px;

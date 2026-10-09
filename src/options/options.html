@@ -8,7 +8,10 @@
   <body>
     <h1>Field Ninja for Jira — Settings</h1>
     <p class="jfv-subtitle">Manage which fields are hidden per site, project and issue type.</p>
+    <label class="jfv-search-label" for="prefs-search">Search</label>
+    <input id="prefs-search" class="jfv-search" type="search" placeholder="Host, project, issue type or field" />
     <div id="prefs-list"></div>
+    <p id="prefs-no-match" hidden>No matches.</p>
     <button id="clear-all-btn" type="button">Clear All</button>
     <script src="options.js"></script>
   </body>

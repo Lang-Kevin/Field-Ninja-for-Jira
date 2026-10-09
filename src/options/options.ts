@@ -13,6 +13,24 @@ import { makeScopeKey } from '../types/prefs';
 
 const PREFS_LIST_ID = 'prefs-list';
 const CLEAR_ALL_BTN_ID = 'clear-all-btn';
+const SEARCH_ID = 'prefs-search';
+const NO_MATCH_ID = 'prefs-no-match';
+
+/** Hide groups whose data-search text lacks the query (case-insensitive). */
+function applyFilter(): void {
+  const q = (document.getElementById(SEARCH_ID) as HTMLInputElement | null)?.value
+    .trim()
+    .toLowerCase() ?? '';
+  const groups = document.querySelectorAll<HTMLElement>('.jfv-project-group');
+  let shown = 0;
+  groups.forEach((g) => {
+    const hit = !q || (g.dataset.search ?? '').includes(q);
+    g.hidden = !hit;
+    if (hit) shown++;
+  });
+  const none = document.getElementById(NO_MATCH_ID);
+  if (none) none.hidden = !(q && groups.length > 0 && shown === 0);
+}
 
 /** `user-story` -> `User Story` */
 export function titleize(slug: string): string {
@@ -122,6 +140,7 @@ async function doRender(store: PrefsStore): Promise<void> {
 
     const group = document.createElement('div');
     group.className = 'jfv-project-group';
+    const searchText = [host, projectKey];
 
     const heading = document.createElement('h2');
     heading.className = 'jfv-project-heading';
@@ -149,11 +168,13 @@ async function doRender(store: PrefsStore): Promise<void> {
       const empty = document.createElement('p');
       empty.textContent = 'No hidden fields.';
       group.appendChild(empty);
+      group.dataset.search = searchText.join(' ').toLowerCase();
       container.appendChild(group);
       continue;
     }
 
     for (const pref of prefsForScope) {
+      searchText.push(pref.issueTypeId, titleize(pref.issueTypeId));
       const row = document.createElement('div');
       row.className = 'jfv-pref-row';
 
@@ -186,6 +207,7 @@ async function doRender(store: PrefsStore): Promise<void> {
         const fieldLabel = document.createElement('span');
         fieldLabel.className = 'jfv-field-sub-label';
         fieldLabel.textContent = labels[fieldId] ?? humanizeFieldId(fieldId);
+        searchText.push(fieldLabel.textContent);
 
         const unhideBtn = document.createElement('button');
         unhideBtn.type = 'button';
@@ -205,8 +227,10 @@ async function doRender(store: PrefsStore): Promise<void> {
       }
     }
 
+    group.dataset.search = searchText.join(' ').toLowerCase();
     container.appendChild(group);
   }
+  applyFilter();
 }
 
 async function handleClearOne(
@@ -242,6 +266,8 @@ async function handleDeactivate(host: string, projectKey: string): Promise<void>
 async function init(): Promise<void> {
   const store = await loadPrefs();
   void render(store);
+
+  document.getElementById(SEARCH_ID)?.addEventListener('input', applyFilter);
 
   const clearAllBtn = document.getElementById(CLEAR_ALL_BTN_ID);
   clearAllBtn?.addEventListener('click', () => {

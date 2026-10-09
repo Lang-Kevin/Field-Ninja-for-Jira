@@ -11,6 +11,7 @@
 
 import type { FieldMeta, TabMeta } from '../types/field-meta';
 import { deriveFieldId, normalizeLabel } from './field-id';
+import { JIRA_SELECTORS } from './jira-selectors';
 
 /**
  * Provisional selector for a "field container" marker element — the
@@ -30,8 +31,7 @@ import { deriveFieldId, normalizeLabel } from './field-id';
  * just the value node. The role=group token must stay until bug 5 has a real
  * Jira repro to design a narrower fix against; see docs/PLAN.md.
  */
-const CONTAINER_MARKER_SELECTOR =
-  '[data-testid*="field"], [data-testid*="-field"], [id^="customfield_"], [class*="customfield"], [role="group"]';
+const CONTAINER_MARKER_SELECTOR = JIRA_SELECTORS.containerMarker;
 
 /**
  * Provisional selector for plausible field elements on a Jira issue page.
@@ -39,8 +39,7 @@ const CONTAINER_MARKER_SELECTOR =
  * conventions) selector patterns. Hardened in Wave 5/7 with real Jira
  * fixtures.
  */
-const FIELD_SELECTOR =
-  '[data-testid*="field"], [data-testid*="-field"], [id^="customfield_"], [class*="customfield"]';
+const FIELD_SELECTOR = JIRA_SELECTORS.field;
 
 /**
  * Selector for a field's heading element on Jira's empty-field markup. When
@@ -53,7 +52,7 @@ const FIELD_SELECTOR =
  * ("Release Notes (deutsch)"), not yet corroborated against other empty-field
  * types. Hardened once more real Jira markup is confirmed.
  */
-const FIELD_HEADING_SELECTOR = '[data-component-selector*="field-heading"]';
+const FIELD_HEADING_SELECTOR = JIRA_SELECTORS.fieldHeading;
 
 /**
  * Provisional selector for sidebar app panels (e.g. Automation, Tempo) that
@@ -61,7 +60,7 @@ const FIELD_HEADING_SELECTOR = '[data-component-selector*="field-heading"]';
  * fields but third-party app panels rendered into the issue view. Hardened
  * once real Jira markup for these panels is confirmed.
  */
-const PANEL_SELECTOR = '[data-testid*="panel"], [data-testid*="-panel"]';
+const PANEL_SELECTOR = JIRA_SELECTORS.panel;
 
 /**
  * Jira's own global app-shell navigation rail (aria-label="Sidebar" in real
@@ -71,7 +70,7 @@ const PANEL_SELECTOR = '[data-testid*="panel"], [data-testid*="-panel"]';
  * page chrome, never an issue field — excluded outright rather than merely
  * marked protected, since protected still shows the row in the panel list.
  */
-const GLOBAL_NAV_EXCLUDE_SELECTOR = '[aria-label="Sidebar"]';
+const GLOBAL_NAV_EXCLUDE_SELECTOR = JIRA_SELECTORS.globalNavExclude;
 
 /**
  * Jira's "Child work items" panel — renders child issue rows in a table.
@@ -82,8 +81,7 @@ const GLOBAL_NAV_EXCLUDE_SELECTOR = '[aria-label="Sidebar"]';
  * (e.g. priority/status readviews rendered per child-issue row) are also
  * caught without listing every possible inner testid.
  */
-const CHILD_ISSUES_EXCLUDE_SELECTOR =
-  '[data-testid*="child-issues-panel"], [aria-label="Child work items section"]';
+const CHILD_ISSUES_EXCLUDE_SELECTOR = JIRA_SELECTORS.childIssuesExclude;
 
 /**
  * Jira's own drag-reorder chrome around the field list: `sortable-item-list`
@@ -111,8 +109,7 @@ const CHILD_ISSUES_EXCLUDE_SELECTOR =
  * "panel" for some sections, e.g. "development-context-panel"), so
  * listPanels() must exclude it too — see its candidate-filter loop.
  */
-const SORTABLE_CHROME_EXCLUDE_SELECTOR =
-  '[data-testid*="sortable-item-list"], [data-testid*="context-group"], [data-testid*="collapsible-group-factory"]';
+const SORTABLE_CHROME_EXCLUDE_SELECTOR = JIRA_SELECTORS.sortableChromeExclude;
 
 /**
  * Selector for Jira's collapsible section wrappers (e.g. "Details",
@@ -120,14 +117,13 @@ const SORTABLE_CHROME_EXCLUDE_SELECTOR =
  * via SORTABLE_CHROME_EXCLUDE_SELECTOR — they're not fields themselves, but
  * we want to auto-hide them when all their child fields are hidden.
  */
-const SECTION_SELECTOR =
-  '[data-testid*="context-group"], [data-testid*="collapsible-group-factory"]';
+const SECTION_SELECTOR = JIRA_SELECTORS.section;
 
 /**
  * Provisional selector for a label element near a field. Hardened in
  * Wave 5/7 with real Jira fixtures.
  */
-const LABEL_SELECTOR = 'label, [data-testid*="label"]';
+const LABEL_SELECTOR = JIRA_SELECTORS.label;
 
 /**
  * Normalized labels of fields that must never be user-hideable. Matched via
@@ -147,7 +143,7 @@ const PROTECTED_LABELS = new Set(['summary', 'status']);
  * - "ref-spotlight-target-status-spotlight": Status's onboarding-tour
  *   spotlight wrapper.
  */
-const PROTECTED_TESTID_SUBSTRINGS = ['issue-field-summary', 'issue-field-status', 'ref-spotlight-target-status-spotlight'];
+const PROTECTED_TESTID_SUBSTRINGS = JIRA_SELECTORS.protectedTestidSubstrings;
 
 /**
  * `closest()` selector built from PROTECTED_TESTID_SUBSTRINGS. Unlike
@@ -553,7 +549,7 @@ export function listTabs(root?: ParentNode): TabMeta[] {
 
   let candidates: Element[] = [];
   try {
-    candidates = Array.from(scope.querySelectorAll('[role="tab"]'));
+    candidates = Array.from(scope.querySelectorAll(JIRA_SELECTORS.tab));
   } catch {
     return [];
   }
@@ -636,7 +632,7 @@ export function listPanels(root?: ParentNode): FieldMeta[] {
       const id = deriveFieldId(el, label);
 
       // ponytail: climb to parent only when it wraps the panel title sibling
-      const titleSibling = el.parentElement?.querySelector('[data-testid$=".title"]');
+      const titleSibling = el.parentElement?.querySelector(JIRA_SELECTORS.panelTitle);
       const containerNode = (titleSibling && el.parentElement instanceof HTMLElement)
         ? el.parentElement
         : el;

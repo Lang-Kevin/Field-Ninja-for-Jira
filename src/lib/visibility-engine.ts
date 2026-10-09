@@ -26,6 +26,7 @@
  */
 
 import { markOwnMutation } from './dom-observer';
+import { JIRA_SELECTORS } from './jira-selectors';
 import type { FieldMeta, TabMeta } from '../types/field-meta';
 
 export interface VisibilityDiffEntry {
@@ -245,8 +246,8 @@ export function syncCoverStyle(heightPx: number | null): void {
       : (() => {
           const clamped = Math.min(600, Math.max(20, heightPx));
           return (
-            `div[role="img"][aria-label]:empty {\n  height: ${clamped}px !important;\n  min-height: 0 !important;\n  max-height: ${clamped}px !important;\n}\n` +
-            `:has(> div[role="img"][aria-label]:empty) {\n  height: ${clamped}px !important;\n  min-height: 0 !important;\n  max-height: ${clamped}px !important;\n}`
+            `${JIRA_SELECTORS.cover} {\n  height: ${clamped}px !important;\n  min-height: 0 !important;\n  max-height: ${clamped}px !important;\n}\n` +
+            `:has(> ${JIRA_SELECTORS.cover}) {\n  height: ${clamped}px !important;\n  min-height: 0 !important;\n  max-height: ${clamped}px !important;\n}`
           );
         })();
   if (coverStyleEl.textContent !== text) {

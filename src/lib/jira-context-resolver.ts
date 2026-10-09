@@ -18,6 +18,7 @@
  */
 
 
+import { JIRA_SELECTORS } from './jira-selectors';
 export interface IssueContext {
   issueTypeId: string;
   issueKey: string | null;
@@ -58,10 +59,7 @@ const PROJECT_KEY_PATH_REGEX = /\/jira\/[^/]+\/projects\/([A-Z][A-Z0-9]*)/;
 // Provisional, hardened in Wave 5/7 with real Jira fixtures.
 // Jira's actual data-testid naming isn't confirmed yet, so we try a couple
 // of plausible substring patterns for the issue-type badge/icon.
-const ISSUE_TYPE_SELECTORS = [
-  '[data-testid*="issue-type"]',
-  '[data-testid*="issuetype"]',
-] as const;
+const ISSUE_TYPE_SELECTORS = JIRA_SELECTORS.issueType;
 
 // Provisional, hardened in Wave 5/7 with real Jira fixtures.
 const ISSUE_KEY_PATH_REGEX = /\/browse\/([A-Z][A-Z0-9]*-\d+)/;
@@ -80,12 +78,7 @@ const ISSUE_KEY_SHAPE_REGEX = /^[A-Z][A-Z0-9]*-\d+$/;
 // fragment (no fields found) rather than scanning `document` — confirmed live as
 // `issue.views.issue-details.issue-modal.modal-dialog` (board) and
 // `issue.views.issue-details.issue-layout.issue-layout` (issue navigator).
-const ISSUE_DETAIL_PANEL_SELECTORS = [
-  '[data-testid="issue.views.issue-details.issue-modal.modal-dialog"]',
-  '[data-testid*="issue-modal.modal-dialog"]',
-  '[data-testid="issue.views.issue-details.issue-layout.issue-layout"]',
-  '[data-testid*="issue-details.issue-layout"]',
-] as const;
+const ISSUE_DETAIL_PANEL_SELECTORS = JIRA_SELECTORS.issueDetailPanel;
 
 /**
  * Slugify an arbitrary label into a stable-ish id: lowercase, non-alnum
@@ -124,7 +117,7 @@ function readIssueTypeFromDom(root: ParentNode = document): string | null {
         // ponytail: linked-issue cards inside the panel carry their own
         // `issue-line-card-issue-type` badge — skip them so we read the
         // panel's OWN type, not a linked issue's, regardless of DOM order.
-        if (el.closest('[data-testid*="issue-line-card"]')) continue;
+        if (el.closest(JIRA_SELECTORS.issueLineCard)) continue;
 
         const label =
           el.getAttribute('aria-label') ??

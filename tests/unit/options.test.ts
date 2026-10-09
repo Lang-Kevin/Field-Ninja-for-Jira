@@ -97,10 +97,45 @@ function fakeFile(content: string, size = content.length) {
 const box = (id: string) => document.getElementById(id)!;
 
 describe('storage usage line', () => {
-  it('renders after every render', async () => {
+  it('shows the sync usage line after the initial render', async () => {
     document.body.innerHTML = PAGE;
     document.dispatchEvent(new Event('DOMContentLoaded'));
     await vi.waitFor(() => expect(box('storage-usage').textContent).toBe('Sync storage: 3.1 of 100 KB'));
+  });
+});
+
+describe('render / usage robustness', () => {
+  afterEach(() => {
+    m.getSyncUsage.mockReset();
+    m.getSyncUsage.mockImplementation(async () => ({ bytes: 3174, quota: 102400 }));
+  });
+
+  it('render queued during the usage refresh is not dropped', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    m.getSyncUsage.mockImplementation(async () => {
+      await gate;
+      return { bytes: 1024, quota: 102400 };
+    });
+    document.body.innerHTML = `<button id="clear-all-btn"></button>${PAGE}`;
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await vi.waitFor(() => expect(document.querySelectorAll('.jfv-project-group').length).toBe(2));
+    box('clear-all-btn').click(); // render({}) arrives while refreshUsage hangs
+    await new Promise((r) => setTimeout(r, 20));
+    release();
+    await vi.waitFor(() => expect(document.querySelectorAll('.jfv-project-group').length).toBe(0));
+    expect(box('prefs-list').textContent).toBe('No saved preferences yet.');
+  });
+
+  it('getSyncUsage rejection: groups still render, usage line empty', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    m.getSyncUsage.mockRejectedValue(new Error('boom'));
+    document.body.innerHTML = PAGE;
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await vi.waitFor(() => expect(document.querySelectorAll('.jfv-project-group').length).toBe(2));
+    await vi.waitFor(() => expect(warn).toHaveBeenCalled());
+    expect(box('storage-usage').textContent).toBe('');
+    warn.mockRestore();
   });
 });
 
@@ -143,6 +178,14 @@ describe('import', () => {
     expect(box('storage-error').textContent).toBe('Import failed: $.format: expected "field-ninja-for-jira"');
     expect(ask).not.toHaveBeenCalled();
     expect(m.writeBuckets).not.toHaveBeenCalled();
+  });
+
+  it('long error text is truncated to 300 chars + ellipsis', async () => {
+    const bad = JSON.stringify({ format: 'field-ninja-for-jira', version: 1, prefs: { ['x'.repeat(1000)]: {} }, activations: [] });
+    await handleImportFile(fakeFile(bad).file);
+    const t = box('storage-error').textContent!;
+    expect(t.length).toBe(301);
+    expect(t.endsWith('…')).toBe(true);
   });
 
   it('valid file → confirm with summary, replace-write, merge activations, save settings', async () => {

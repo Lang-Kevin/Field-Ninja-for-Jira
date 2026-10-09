@@ -109,13 +109,14 @@ async function render(store: PrefsStore): Promise<void> {
   }
   rendering = true;
   try {
-    await doRender(store);
-    while (pendingStore) {
-      const next = pendingStore;
-      pendingStore = null;
+    // refreshUsage inside the loop: no await gap between draining and `finally`.
+    let next: PrefsStore | null = store;
+    while (next) {
       await doRender(next);
+      await refreshUsage();
+      next = pendingStore;
+      pendingStore = null;
     }
-    await refreshUsage();
   } finally {
     rendering = false;
   }
@@ -302,16 +303,21 @@ async function handleDeactivate(host: string, projectKey: string): Promise<void>
 
 // HR-17: Blob + <a download>, no downloads permission.
 async function handleExport(): Promise<void> {
-  const url = URL.createObjectURL(
-    new Blob([JSON.stringify(await buildExport(), null, 2)], { type: 'application/json' })
-  );
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `field-ninja-export-${new Date().toISOString().slice(0, 10)}.json`;
-  document.body.appendChild(a); // Firefox needs the anchor in the document
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  try {
+    const url = URL.createObjectURL(
+      new Blob([JSON.stringify(await buildExport(), null, 2)], { type: 'application/json' })
+    );
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `field-ninja-export-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a); // Firefox needs the anchor in the document
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (e) {
+    console.warn('[jfv] export failed', e);
+    showMessage(STORAGE_ERROR_ID, quotaMessage(e) ?? 'Export failed.');
+  }
 }
 
 /**
@@ -361,7 +367,7 @@ export async function handleImportFile(file: File): Promise<void> {
     console.warn('[jfv] import activations/settings failed', e);
     showMessage(STORAGE_ERROR_ID, `Prefs imported; activations/settings failed: ${quotaMessage(e) ?? String(e)}`);
   }
-  void render(await loadPrefs());
+  void loadPrefs().then(render).catch((e) => console.warn('[jfv] reload after import failed', e));
 }
 
 async function init(): Promise<void> {

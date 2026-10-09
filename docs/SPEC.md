@@ -7,7 +7,7 @@
 - SPEC ist **normativ**: Code ≠ SPEC ⇒ entweder Bug oder SPEC-Änderung, nie stillschweigend.
 - Zielgruppe: `@reviewer` (Spec-Audit) und `@qa-verifier` (Akzeptanz) — beide ohne Branch-Kontext.
 - Historie → `docs/CHANGELOG.md`, offene Arbeit → `docs/PLAN.md`.
-- Stand: Storage v3 / site-scoped activation.
+- Stand: Storage v4 / site-scoped activation.
 
 ## 1. Produkt & Scope
 - Field Ninja for Jira (Repo `jira-field-visibility`): MV3-Extension, blendet Jira-Cloud-Issue-Felder **pro Site × Projekt × Issue-Type** aus (`README.md:1-13`).
@@ -27,18 +27,24 @@
 - Aktivieren/Deaktivieren nur über Popup (`popup.ts:79-87`) bzw. Options-Seite (`options.ts:237-240`). Deaktivieren **löscht keine Prefs**.
 - Wirkung ohne Reload: Popup schreibt Storage → `onActivationsChanged` im Content-Script (`content-entry.ts:545-553`).
 
-## 3. Storage-Schema v3
-- Alles in `chrome.storage.sync`, außer opportunistischen Caches in `chrome.storage.local`.
-- Keys (`prefs.ts:40-44`):
-  - `jiraFieldVisibility:v3` → `Record<'${host}:${projectKey}:${issueTypeId}', Pref>` (`prefs.ts:10,21-23`)
-  - `jiraFieldVisibility:activations:v1` → `Record<'${host}:${projectKey}', true>` (`prefs.ts:13,16-18`)
-  - `jiraFieldVisibility:settings:v1` → `Settings { showFieldButtons, debugOutline, shrinkCover, coverHeightPx }`, global, **nicht** scope-behaftet (`prefs.ts:46-53`)
-  - `LEGACY_PREFS_KEYS = ['…:v1','…:v2']` → nur zum Löschen (`prefs.ts:44`)
-- `Pref = { host, projectKey, issueTypeId, hiddenFieldIds[] }` (`prefs.ts:1-7`).
-- Local-Caches (best effort, nie autoritativ, v2-Präfix): `jfv-field-labels:v2:`, `jfv-tab-fields:v2:`, `jfv-section-fields:v2:` (`prefs.ts:26-38`).
-- Warum **separater** Activations-Key statt Sentinel im Prefs-Store: Deaktivieren muss Prefs erhalten, eigenes `onChanged`-Signal, `Object.values(prefs)` in Options bleibt sauber; `Record<string,true>` = idempotentes Setzen ohne Dedupe (`storage-service.ts:359-374`).
-- Quota: ein einzelnes 8-KB-Item; `savePrefs` wirft laut statt still zu droppen; Escape-Hatch = Split auf per-Projekt-Keys (`storage-service.ts:26-30,38-50`).
-- **Keine Migration von v1/v2** — bewusst verworfen; `dropLegacyPrefs()` löscht sync-Legacy + verwaiste `:v1:`-Local-Caches, One-Shot bei `onInstalled` (`storage-service.ts:391-411`, `service-worker.ts:90-94`).
+## 3. Storage-Schema v4
+- Alles in `chrome.storage.sync`, außer opportunistischen Caches in `chrome.storage.local`. Das Key-Format kennt nur `src/types/prefs.ts` (`PREFS_V4_PREFIX`, `makeShardKey`, `parseShardKey`, `parseScopeKey`, `LOCAL_CACHE_PREFIXES`, `scopeOfLocalCacheKey`).
+
+| Key (Bereich) | Wert | Status |
+|---|---|---|
+| `jiraFieldVisibility:v4:${host}:${projectKey}` (sync) | `PrefShard = Record<issueTypeId, string[]>` (hiddenFieldIds, dedupliziert, nie leer) | ein Item pro Scope; leeres Item wird entfernt |
+| `jiraFieldVisibility:v3` (sync) | altes `PrefsStore` | nur von `migrateV3ToV4` gelesen, danach entfernt (HR-3) |
+| `jiraFieldVisibility:activations:v1` (sync) | `Record<'${host}:${projectKey}', true>` | unverändert |
+| `jiraFieldVisibility:settings:v1` (sync) | `Settings { showFieldButtons, debugOutline, shrinkCover, coverHeightPx }`, global, **nicht** scope-behaftet | unverändert |
+| `LEGACY_PREFS_KEYS = ['…:v1','…:v2']` (sync) | — | nur zum Löschen, nie gelesen (HR-3) |
+| `jfv-{field-labels,tab-fields,section-fields}:v2:${host}:${project}:${type}` (local) | Caches, best effort, nie autoritativ | Format unverändert; Pruning per Scope-Liveness im SW |
+
+- Der Wert dupliziert `host`/`projectKey`/`issueTypeId` nicht (der Key kodiert sie; ~60 B pro Bucket weniger als v3). Parsing ist eindeutig, weil `host` = Hostname ohne Port (kein `:`) und `projectKey` = `[A-Z][A-Z0-9_]*`.
+- Öffentliche API unverändert: `loadPrefs(): PrefsStore` wird aus allen Shards zusammengesetzt; `getPref` liest genau einen Shard. `Pref = { host, projectKey, issueTypeId, hiddenFieldIds[] }` (`prefs.ts:1-7`).
+- Warum **separater** Activations-Key statt Sentinel im Prefs-Store: Deaktivieren muss Prefs erhalten, eigenes `onChanged`-Signal, `Object.values(prefs)` in Options bleibt sauber; `Record<string,true>` = idempotentes Setzen ohne Dedupe (`storage-service.ts`: `setActivated`).
+- Quota: 8 KB pro Scope-Shard, 100 KB gesamt (`SYNC_QUOTA`). Eigene Prechecks (Shard-Write, `writeBuckets`, Migration) werfen `StorageQuotaError` (`item`/`total`) vor dem Browser-Call; Browser-Fehler werden auf `item`/`rate`/`total` gemappt. `quotaMessage(e)` ist die einzige Quelle für Nutzertext. Popup und Options zeigen Belegung (`getSyncUsage`, `#storage-usage`, Warnung ab 80 %) und Fehler (`#storage-error`).
+- Local-Caches: Pruning per Scope-Liveness im SW (`pruneLocalCaches`): Einträge, deren `host:project` weder einen v4-Shard noch eine Activation hat, werden entfernt; No-op, solange v3 existiert.
+- **Keine Migration von v1/v2** — bewusst verworfen; `dropLegacyPrefs()` löscht sync-Legacy + verwaiste `:v1:`-Local-Caches, One-Shot bei `onInstalled`. **Genau eine Migration v3→v4** (`migrateV3ToV4`, SW `onInstalled` + `onStartup`, vor der Re-Injection; Reihenfolge migrate → prune → dropLegacyPrefs (nur Install) → reinject, ein Migrationsfehler wird geloggt und die übrige Wartung läuft weiter), Regeln in HR-3.
 
 ## 4. Modulverantwortlichkeiten
 
@@ -48,15 +54,16 @@
 | `src/types/messages.ts` | `GET_FIELDS`-Message + `GetFieldsResponse {onIssuePage, issueTypeId, projectKey, host, fields}`; `PopupFieldInfo {id, label, hidden}` als DOM-freies Popup-Format; einziger Message-Typ des Projekts (`ExtensionMessage = GetFieldsMessage`) (`messages.ts:1-25`) | einen zweiten Message-Typ einführen |
 | `src/lib/jira-context-resolver.ts` | Kontext (`host/projectKey/issueKey/issueTypeId`), Scan-Root, SPA-Watcher, `isEligibleUrl`; wirft nie (`:21-49,176-343`) | werfen; `document` statt Scan-Root lesen |
 | `src/lib/storage-service.ts` | **einziges** Gateway zu `chrome.storage`; Serialisierung + Write-Seq-Metadaten (`:14-31`) | von woanders direkt auf `chrome.storage.sync` zugreifen |
+| `src/lib/export-schema.ts` | reine Validierung der Exportdatei (`validateExport`, `ExportFileV1`, `EXPORT_FORMAT`) | `chrome.*` aufrufen |
 | `src/lib/field-registry.ts` | DOM→`FieldMeta[]` via `listFields`/`listPanels`/`listTabs`/`listSections`/`listUndetectedCandidates`, plus `findContainer` (Container-Auflösung); setzt den `protected`-Flag (`:177-597`) | Protected-Felder unmarkiert lassen |
 | `src/lib/field-id.ts` | stabile Feld-ID über Re-Renders: `normalizeLabel`, `hashString`, `deriveFieldId(node, label, opts?)` (`:7-63`) | ID von DOM-Reihenfolge abhängig machen |
 | `src/lib/visibility-engine.ts` | reine Berechnung (`computeVisibilityDiff`, `computeHiddenTabs`, `computeHiddenSelectors`, `computeHiddenSections`) + DOM-Schreiben (`writeHiddenAttr`, `syncHiddenStylesheet`, `syncCoverStyle`, `toggleField`) (`:31-240`) | protected Felder ausblenden |
 | `src/lib/ui-overlay.ts` | `mountFieldToggle(host, field, projectKey, issueTypeId, hidden, onCommit)`, gibt Cleanup-Funktion zurück; verweigert Mount für `field.protected` (`:71-81`) | Toggle für protected Felder mounten |
 | `src/lib/dom-observer.ts` | **eine** geteilte MutationObserver-Instanz + `markOwnMutation` Self-Write-Suppression (`content-entry.ts:28,577`) | eine zweite Observer-Instanz aufmachen |
 | `src/content/content-entry.ts` | Orchestrierung + Aktivierungs-Gate; einzige Datei, die die Jira-Seite verändert | DOM-Schreiben außerhalb `render()`/Teardown |
-| `src/background/service-worker.ts` | Re-Injection, Toolbar-Icon-Zustand, Legacy-Cleanup (`:51-123`) | neue Permission ohne Manifest-Änderung annehmen |
+| `src/background/service-worker.ts` | Re-Injection, Toolbar-Icon-Zustand, Legacy-Cleanup, Storage-Wartung (`migrateV3ToV4`, `pruneLocalCaches`) vor der Re-Injection | neue Permission ohne Manifest-Änderung annehmen |
 | `src/popup/popup.ts` | Sechs-State-Machine, Feldliste, Aktivierungs-Buttons, globale Settings | Aktivierungszustand aus der Content-Antwort statt aus Storage lesen |
-| `src/options/options.ts` | Verwaltung aller Scopes (Gruppierung, Reset, Deaktivieren) | Prefs bei Deaktivieren löschen |
+| `src/options/options.ts` | Verwaltung aller Scopes (Gruppierung, Reset, Deaktivieren), Export/Import, Copy-to | Prefs bei Deaktivieren löschen |
 
 Anmerkung: `applyVisibility` existiert nicht mehr (entfernt in `09fe599`, s. `docs/CHANGELOG.md`) — Anwendung läuft heute über `toggleField`/`syncHiddenStylesheet`/`writeHiddenAttr`. `mountGlobalPanel` existiert nicht als Export; die einzige Fundstelle ist ein veralteter Doc-Kommentar in `content-entry.ts:153`, der Funktionsname ist nicht (mehr) implementiert.
 
@@ -86,9 +93,9 @@ Anmerkung: `applyVisibility` existiert nicht mehr (entfernt in `09fe599`, s. `do
 - **HR-1 Ein Gate, ein Choke-Point.** Jeder Seiteneffekt liegt hinter `if (!isActive) { teardownPageEffects(); return; }` am Anfang von `render()`. *Verletzt, wenn:* ein neuer Code-Pfad DOM schreibt/Toggles mountet außerhalb `render()`. (`content-entry.ts:184-189`)
   - **Abweichung (erlaubte Ausnahme):** `applyCoverStyle()` (`content-entry.ts:77-79`) ist ein zweiter, bewusster `isActive`-Choke-Point für die `<head>`-Cover-Regel. Nötig, weil Settings-/Aktivierungs-Callbacks `render()` nur bei `onIssuePage` erreichen — die Cover-Regel muss aber auch außerhalb einer Issue-Seite (de)aktiviert werden. Erlaubt, weil sie dasselbe `isActive`-Gate durchsetzt wie `render()` und die einzige zusätzliche Stelle bleibt.
 - **HR-2 Teardown bleibt idempotent & vollständig.** Neue Seiteneffekt-Arten müssen in `teardownPageEffects()` zurückgebaut werden (Stylesheet, `data-jfv-hidden`, ToggleMap, Tab-/Section-Sets). (`:78-91`)
-- **HR-3 Keine Migration alter Prefs.** v1/v2 werden gelöscht, nie gelesen/gemerged. *Verletzt bei:* jedem Lesezugriff auf `LEGACY_PREFS_KEYS`. (`storage-service.ts:33-36,402-411`)
-- **HR-4 Zwei getrennte Write-Chains + eine Seq-Queue.** `enqueueWrite`/`issuedWriteSeq`/`committedWriteSeq` gelten **nur** für Prefs-Writes; `saveSettings` nutzt `settingsWriteChain`, `setActivated` nutzt `activationsWriteChain`. *Verletzt, wenn:* Settings/Activations in `enqueueWrite` gehängt werden (ein laufender Feld-Toggle würde das Aktivierungs-Re-Render schlucken). (`storage-service.ts:115-122,293-305,352-374`)
-- **HR-5 storage-service ist das einzige Gateway.** Kein `chrome.storage.sync.*` außerhalb. Einzig erlaubte Direktzugriffe: die `storage.local`-Caches in `content-entry.ts` (`:252,266,312`) — explizit best-effort. (`storage-service.ts:14-24`)
+- **HR-3 Keine Migration von v1/v2; genau eine Migration v3→v4.** v1/v2 werden gelöscht, nie gelesen/gemerged. `jiraFieldVisibility:v3` wird ausschließlich von `migrateV3ToV4()` gelesen: Fill-missing-Merge in die v4-Shards (v4 gewinnt pro Issue-Type), v4 in **einem** `set` schreiben, v3 erst **danach** entfernen, idempotent (Existenz von v3 = einziger Marker); Aufruf nur aus dem SW (`onInstalled` jeder Reason, `onStartup`), vor `reinjectContentScript`. *Verletzt bei:* jedem Lesezugriff auf `LEGACY_PREFS_KEYS`; jedem Lesezugriff auf `PREFS_V3_STORAGE_KEY` außerhalb `migrateV3ToV4`/`pruneLocalCaches` (dort nur Existenzcheck); `remove(v3)` vor aufgelöstem v4-`set`.
+- **HR-4 Zwei getrennte Write-Chains + eine Seq-Queue.** `enqueueWrite`/`issuedWriteSeq`/`committedWriteSeq` gelten **nur** für Prefs-Writes; `saveSettings` nutzt `settingsWriteChain`, `setActivated` nutzt `activationsWriteChain`. *Verletzt, wenn:* Settings/Activations in `enqueueWrite` gehängt werden (ein laufender Feld-Toggle würde das Aktivierungs-Re-Render schlucken). (`storage-service.ts:115-122,293-305,352-374`) Prefs-Writes = `toggleField`, `setHiddenFields`, `clearPref`, `clearPrefs`, `writeBuckets` (Import/Copy-to) — alle über `enqueueWrite`. `mergeActivations` nutzt `activationsWriteChain`. `migrateV3ToV4` läuft nur im SW (dort kein weiterer Prefs-Writer) und hängt an keiner Chain.
+- **HR-5 storage-service ist das einzige Gateway.** Kein `chrome.storage.sync.*` außerhalb. Einzig erlaubte Direktzugriffe: die `storage.local`-Caches in `content-entry.ts` (`:252,266,312`) — explizit best-effort. (`storage-service.ts:14-24`) Options liest Label-Cache und Known-Buckets nur über storage-service (`loadFieldLabels`, `listKnownBuckets`); `src/lib/export-schema.ts` ist rein (kein `chrome.*`).
 - **HR-6 Schreib-Guard.** Kein Write ohne `host && projectKey && isKnownIssueType` — sonst entstünde ein kaputter Composite-Key bzw. ein `unknown`-Bucket. (`storage-service.ts:148-154,166,265`)
 - **HR-7 Self-Write-Suppression.** Jede DOM-Mutation der Extension läuft in `markOwnMutation(...)`, sonst Endlosschleife Observer↔Render. (`content-entry.ts:80,357`)
 - **HR-8 Genau eine MutationObserver-Instanz** (`observeRoot`), 300 ms Debounce; Rescans lesen **nie** Storage neu, sie nutzen `currentHiddenFieldIds`. (`content-entry.ts:569-579,136-141`)
@@ -99,11 +106,12 @@ Anmerkung: `applyVisibility` existiert nicht mehr (entfernt in `09fe599`, s. `do
 - **HR-13 `GET_FIELDS` wird NICHT auf `isActive` gegatet.** Read-only DOM-Scan; sonst könnte das Popup direkt nach Aktivierung keine Liste zeigen. (`content-entry.ts:626-652`)
 - **HR-14 `onPrefsChanged` bleibt auf `isActive` + Seq-Gate + `settling`-Flag.** Fremd-Tab-Writes dürfen einen inaktiven Tab nicht aufwecken; stale Events werden per `waitForWritesToSettle` aufgelöst, nicht verworfen. (`content-entry.ts:656-709`, `storage-service.ts:224-238`)
 - **HR-15 `onActivationsChanged` ist Pflicht-Geschwister zu `onPrefsChanged`** — Aktivierung liegt auf einem anderen Key, `onPrefsChanged` feuert dafür nie. (`content-entry.ts:540-553`, `storage-service.ts:377-389`)
-- **HR-16 Deaktivieren erhält Prefs**; `clearPrefs()` entfernt nur den Prefs-Key, Activations bleiben. (`storage-service.ts:70-72,365-369`)
+- **HR-16 Deaktivieren erhält Prefs**; `clearPrefs()` entfernt alle `jiraFieldVisibility:v4:*`-Shards; Activations bleiben. (`storage-service.ts`: `clearPrefs`, `setActivated`)
 - **HR-17 Keine neuen Permissions.** Icon-Graustufe ist eine statische PNG (`icons/icon{16,48}-grey.png`, generiert von `scripts/make-grey-icons.cjs`); `chrome.action.*` braucht keinen Permission-Eintrag. *Verletzt bei:* neuem `tabs`-Permission oder neuem Host-Pattern. (`service-worker.ts:15-24`, `manifest.json:6-12`)
 - **HR-18 Keine Test-Hintertür im Produktivcode** (kein `host === 'localhost'`-Bypass); Integrationstests seeden echte Activations. (`tests/integration/setup.ts:49-73`)
 - **HR-19 `__jfvLoaded`-Guard bleibt** — SW-Re-Injection darf kein zweites Init erzeugen. (`content-entry.ts:712-715`, `service-worker.ts:51-60`)
 - **HR-20 Kein zweiter Message-Typ für Aktivierung.** Fluss ist Popup → Storage → Content. (`popup.ts:79-87`)
+- **HR-21 Import ist Trust-Boundary.** Datei läuft vollständig durch `validateExport()` (exakte Key-Menge, Typen, Längen, Regex, kein `__proto__`/`constructor`/`prototype`); alles-oder-nichts; Quota-Precheck vor jedem Write; Merge = Datei gewinnt pro Issue-Type-Bucket, übrige Buckets bleiben. `buildExport` rundet und klemmt `coverHeightPx`, damit eigene Exporte `validateExport` bestehen; Exportfehler erscheinen inline. *Verletzt bei:* Write aus ungeprüften Dateidaten oder Teil-Import nach Validierungsfehler. (`export-schema.ts`: `validateExport`; `options.ts`: `handleImportFile`)
 
 ## 8. Design System {#design-system}
 - Atlassian-ADG-nahe Palette; Fokusring `#4c9aff` mit `outline-offset: 1px` auf `:focus-visible` (`src/content/styles.css:54-57`).
@@ -118,13 +126,20 @@ Anmerkung: `applyVisibility` existiert nicht mehr (entfernt in `09fe599`, s. `do
 - **Activations liegen in `storage.sync`** → Aktivieren auf Gerät A aktiviert stumm auch Gerät B. Umstellung wäre ein One-Liner am Key (`prefs.ts:41`).
 - **JSM/next-gen-Projekt-URLs** matchen evtl. `PROJECT_KEY_PATH_REGEX` nicht → sanfter Fallback S2 (`jira-context-resolver.ts:51`).
 - **200-ms-Timeout statt ACK** nach Aktivierung (`popup.ts:83-85`).
-- **Sync-Quota**: Keys sind ~20 B länger als in v2, `Pref` dupliziert `host`/`projectKey`/`issueTypeId` in den Wert. Degradiert laut (Exception), nicht still (`storage-service.ts:44-48`).
-- **Label-Cache unbegrenzt** (`content-entry.ts:120-127`).
+- **Sync-Quota**: 8 KB pro Scope-Shard, 100 KB gesamt; Overflow → `StorageQuotaError`, Popup/Options zeigen Belegung.
+- **Local-Caches pro toter Scope geprunt, kein LRU**; aktiver Scope behält alle Issue-Types (`pruneLocalCaches`).
 - **DOM-Selektoren provisorisch** — Jira-Markup-Änderung degradiert zu `unknown`/leerem Scan statt Fehler (`jira-context-resolver.ts:14-17,53-59`; ausführlicher in `field-registry.ts:6-9` beschrieben).
+- **Migration vs. parallelem Tab-Write**: einmaliges LWW-Fenster akzeptiert (ein Content-Tab-Toggle zwischen Lesen und `set` der Migration kann überschrieben werden).
+- **Gerät mit ≤0.4.0** sieht nach der Migration leere Prefs; seine Writes erzeugen v3 neu → Fill-missing-Merge beim nächsten `onStartup`.
+- **Optimistischer Content-Toggle wird bei Write-Fehler nicht zurückgerollt**; der Fehler landet als `[jfv]`-Log in der Konsole, das Popup zeigt die Belegung (HR-1: keine neue Content-UI).
 
 ## 10. Test-Contract (was welche Invariante schützt)
 - Unit `storage-service`: Cross-Site- und Cross-Projekt-Isolation, Deaktivieren erhält Prefs, zwei parallele `setActivated`, Key-Trennung der `onChanged`-Listener, `dropLegacyPrefs`-Scope, Write-Guard-No-Ops.
 - Unit `jira-context-resolver`: `isEligibleUrl`-Matrix inkl. Suffix-Spoof, `undefined`, `/issuesfoo` (false) und `/issues/` (true); lowercase `host`; Pfad-Fallback-ProjectKey.
+- Unit `storage-migration`: `migrateV3ToV4` idempotent (2 Läufe = gleicher Zustand), `set` vor `remove`, Crash zwischen `set`/`remove` → Rerun sauber, `set` wirft → v3 intakt, v4 gewinnt pro Issue-Type, kaputte v3-Einträge übersprungen, Overflow → Fehler ohne Write; `pruneLocalCaches` ist No-op, solange v3 existiert, und behält Scopes mit Prefs oder Activation.
+- Unit `export-schema`: `validateExport`-Matrix, je eine Ablehnung pro Regel (Top-Level-Keys, `format`/`version`, `__proto__`/`constructor`/`prototype`, Scope-Regex, `unknown`-Typ, Längen/Anzahlen, Settings-Keys/-Range); jede Verletzung verwirft die ganze Datei; `buildExport` rundet/klemmt `coverHeightPx`.
+- Unit `storage-bulk`: `writeBuckets` replace vs. union, genau ein `set`, Quota-Precheck bricht ohne Write ab, `unknown`-Typ übersprungen; `mergeActivations` in einem Write.
+- Unit `options`/`popup`/`service-worker`: Import (Größe vor `text()`, ungültiges JSON/Schema → kein Write, Confirm, Teilfehler-Text), Exportfehler inline, Copy-to nur `union` (ein Panel pro Zeile, Doppelklick-Guard, Copy während Schreiben deaktiviert, "Select at least one target."/"Could not load copy targets."), Usage-Zeile wird in der Pending-Render-Schleife aktualisiert; Popup zeigt `quotaMessage`-Text und klemmt `coverHeightPx`; SW-Reihenfolge migrate → prune → dropLegacy → reinject.
 - Integration (Puppeteer): laufen durch das **echte** Gate, Activations werden im Harness geseedet (`tests/integration/setup.ts:49-73`); frisches Profil pro Datei, `fileParallelism: false`.
 - Manuell nur über **Claude for Chrome** (echtes Profil + geladene `dist/`); `agent-browser` untauglich (`CLAUDE.md`).
 - Real-Tenant-E2E (Chrome + Firefox, `fieldninjaforjira.atlassian.net`): deckt Aktivierung, Per-Issue-Type-Isolation, Scope-Isolation, Settings und Chrome/Firefox-Build-Parität ab; siehe `docs/TESTPLAN.md`.

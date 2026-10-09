@@ -83,8 +83,20 @@ async function handleActivate(response: GetFieldsResponse, activate: boolean): P
   if (response.projectKey === null) return;
   await setActivated(response.host, response.projectKey, activate);
   if (activate) {
-    // ponytail: kein ACK-Message — 200ms decken den In-Process-storage.onChanged-Roundtrip. ACK nachrüsten, falls es je flackert.
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    // ACK = content script's isActive flag flipped (render may still be in flight); poll GET_FIELDS, 200ms total as timeout fallback.
+    const deadline = Date.now() + 200;
+    let tabId: number | undefined;
+    while (Date.now() < deadline) {
+      try {
+        tabId ??= (await chrome.tabs.query({ active: true, currentWindow: true }))[0].id!;
+        const r: GetFieldsResponse = await chrome.tabs.sendMessage(tabId, { type: 'GET_FIELDS' });
+        if (r.isActive) break;
+      } catch (e) {
+        console.warn('[jfv] activate ack failed', e);
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
   }
   await refresh();
 }
@@ -166,7 +178,8 @@ async function refresh(): Promise<void> {
   let response: GetFieldsResponse;
   try {
     response = await chrome.tabs.sendMessage(tab.id, { type: 'GET_FIELDS' });
-  } catch {
+  } catch (e) {
+    console.warn('[jfv] GET_FIELDS failed', e);
     // No content script on this tab (e.g. older tab than the extension install).
     latestResponse = undefined;
     renderState('S1');
@@ -275,7 +288,8 @@ async function init(): Promise<void> {
           issueTypeId,
           fields.map((f) => f.id)
         );
-      } catch {
+      } catch (e) {
+        console.warn('[jfv] setHiddenFields failed', e);
         alert('Too many fields for the sync storage quota.');
       }
       await refresh();

@@ -14,6 +14,8 @@ export interface GetFieldsResponse {
   issueTypeId: string;
   projectKey: string | null;
   host: string;
+  /** Content script's applied activation state; popup polls it as the activate ACK. */
+  isActive?: boolean;
   fields: PopupFieldInfo[];
 }
 

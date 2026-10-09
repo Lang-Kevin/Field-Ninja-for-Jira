@@ -93,7 +93,7 @@ function teardownPageEffects(): void {
       node.removeAttribute('data-jfv-hidden');
     }
     for (const cleanup of fieldToggleMap.values()) {
-      try { cleanup(); } catch {}
+      try { cleanup(); } catch (e) { console.warn("[jfv] toggle cleanup failed", e); }
     }
     fieldToggleMap.clear();
   });
@@ -431,7 +431,7 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
       if (!showFieldButtons) {
         // showFieldButtons off — remove all toggle buttons.
         for (const cleanup of fieldToggleMap.values()) {
-          try { cleanup(); } catch {}
+          try { cleanup(); } catch (e) { console.warn("[jfv] toggle cleanup failed", e); }
         }
         fieldToggleMap.clear();
       } else if (!skipToggleRemount) {
@@ -439,7 +439,7 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
         // Remounting with fresh `hiddenSet` + `issueTypeId` keeps button state
         // and captured issueTypeId correct.
         for (const cleanup of fieldToggleMap.values()) {
-          try { cleanup(); } catch {}
+          try { cleanup(); } catch (e) { console.warn("[jfv] toggle cleanup failed", e); }
         }
         fieldToggleMap.clear();
         for (const field of fields) {
@@ -458,7 +458,7 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
         // Clean up buttons whose containers left the page.
         for (const [container, cleanup] of [...fieldToggleMap]) {
           if (!liveContainers.has(container)) {
-            try { cleanup(); } catch {}
+            try { cleanup(); } catch (e) { console.warn("[jfv] toggle cleanup failed", e); }
             fieldToggleMap.delete(container);
           }
         }
@@ -685,6 +685,7 @@ function init(): void {
           issueTypeId: currentIssueTypeId,
           projectKey: currentProjectKey,
           host: currentHost,
+          isActive,
           fields,
         });
       }

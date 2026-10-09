@@ -356,13 +356,14 @@ function enqueueWrite<T>(fn: () => Promise<T>): Promise<T> {
   issuedWriteSeq += 1;
   const result = writeQueue.then(fn);
   writeQueue = result.catch(() => undefined);
-  // void: result's own rejection is already handled by writeQueue's .catch
-  // above; this .finally() only exists to re-converge committedWriteSeq on
-  // both success and failure, and `void` suppresses the unhandled-rejection
-  // warning on the .finally()-derived promise without an extra no-op .catch.
-  void result.finally(() => {
-    committedWriteSeq += 1;
-  });
+  // result's own rejection reaches the caller; the .finally()-derived promise
+  // would re-reject unhandled, so it gets a no-op catch. It only exists to
+  // re-converge committedWriteSeq on both success and failure.
+  result
+    .finally(() => {
+      committedWriteSeq += 1;
+    })
+    .catch(() => undefined);
   return result;
 }
 

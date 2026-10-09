@@ -9,6 +9,7 @@ import {
   setActivated,
   buildExport,
   getSyncUsage,
+  listKnownBuckets,
   mergeActivations,
   quotaMessage,
   saveSettings,
@@ -232,7 +233,17 @@ async function doRender(store: PrefsStore): Promise<void> {
         void handleClearOne(pref.host, pref.projectKey, pref.issueTypeId);
       });
 
+      const copyBtn = document.createElement('button');
+      copyBtn.type = 'button';
+      copyBtn.className = 'jfv-copy-btn';
+      copyBtn.textContent = 'Copy to…';
+      copyBtn.setAttribute('aria-expanded', 'false');
+      copyBtn.addEventListener('click', () => {
+        toggleCopyPanel(pref, row, copyBtn).catch((e) => console.warn('[jfv] copy panel failed', e));
+      });
+
       row.appendChild(label);
+      row.appendChild(copyBtn);
       row.appendChild(resetBtn);
       group.appendChild(row);
 
@@ -269,6 +280,79 @@ async function doRender(store: PrefsStore): Promise<void> {
     container.appendChild(group);
   }
   applyFilter();
+}
+
+/** Spec §7: inline panel; one checkbox per known bucket except the source. */
+async function toggleCopyPanel(src: Pref, row: HTMLElement, btn: HTMLButtonElement): Promise<void> {
+  const open = row.nextElementSibling;
+  if (open?.classList.contains('jfv-copy-panel')) {
+    open.remove();
+    btn.setAttribute('aria-expanded', 'false');
+    return;
+  }
+  const targets = (await listKnownBuckets()).filter(
+    (t) => t.host !== src.host || t.projectKey !== src.projectKey || t.issueTypeId !== src.issueTypeId
+  );
+
+  const panel = document.createElement('fieldset');
+  panel.className = 'jfv-copy-panel';
+  const legend = document.createElement('legend');
+  legend.textContent = `Copy ${src.hiddenFieldIds.length} hidden field(s) to`;
+  panel.appendChild(legend);
+
+  const boxes = targets.map((t) => {
+    const label = document.createElement('label');
+    label.className = 'jfv-copy-target';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    label.append(cb, ` ${t.host} — ${t.projectKey} — ${titleize(t.issueTypeId)}`);
+    panel.appendChild(label);
+    return { t, cb };
+  });
+  if (boxes.length === 0) panel.append('No other known issue types yet.');
+
+  const actions = document.createElement('div');
+  actions.className = 'jfv-copy-actions';
+  const confirmBtn = document.createElement('button');
+  confirmBtn.type = 'button';
+  confirmBtn.className = 'jfv-copy-confirm';
+  confirmBtn.textContent = 'Copy';
+  confirmBtn.addEventListener('click', () => {
+    copyTo(src, boxes.filter((b) => b.cb.checked).map((b) => b.t)).catch((e) =>
+      console.warn('[jfv] copy failed', e)
+    );
+  });
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.className = 'jfv-copy-cancel';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', () => {
+    panel.remove();
+    btn.setAttribute('aria-expanded', 'false');
+  });
+  actions.append(confirmBtn, cancelBtn);
+  panel.appendChild(actions);
+  row.after(panel);
+  btn.setAttribute('aria-expanded', 'true');
+}
+
+/** Union, never replace (spec §7): non-destructive, idempotent, so no confirm. */
+async function copyTo(
+  src: Pref,
+  targets: { host: string; projectKey: string; issueTypeId: string }[]
+): Promise<void> {
+  if (targets.length === 0) return;
+  showMessage(STORAGE_ERROR_ID, null);
+  showMessage(STORAGE_STATUS_ID, null);
+  try {
+    await writeBuckets(targets.map((t) => ({ ...t, hiddenFieldIds: src.hiddenFieldIds })), 'union');
+  } catch (e) {
+    console.warn('[jfv] copy failed', e);
+    showMessage(STORAGE_ERROR_ID, quotaMessage(e) ?? 'Copy failed.');
+    return;
+  }
+  showMessage(STORAGE_STATUS_ID, `Copied to ${targets.length} issue type(s)`);
+  void loadPrefs().then(render).catch((e) => console.warn('[jfv] reload after copy failed', e));
 }
 
 async function handleClearOne(

@@ -84,6 +84,9 @@ h1 {
 }
 
 .jfv-clear-btn,
+.jfv-copy-btn,
+.jfv-copy-panel button,
+#export-btn,
 #clear-all-btn {
   font-size: 13px;
   padding: 6px 12px;
@@ -95,6 +98,9 @@ h1 {
 }
 
 .jfv-clear-btn:hover,
+.jfv-copy-btn:hover,
+.jfv-copy-panel button:hover,
+#export-btn:hover,
 #clear-all-btn:hover {
   background-color: #ebecf0;
 }
@@ -159,4 +165,60 @@ h1 {
   text-transform: none;
   letter-spacing: normal;
   color: #5e6c84;
+}
+
+.jfv-transfer-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #5e6c84;
+}
+
+.jfv-storage-usage,
+.jfv-storage-status,
+.jfv-storage-error {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #5e6c84;
+}
+
+.jfv-storage-error,
+.jfv-storage-usage.jfv-warning {
+  color: #de350b;
+}
+
+/* auto margin packs "Copy to…" next to "Reset" on the right */
+.jfv-copy-btn {
+  margin-left: auto;
+}
+
+.jfv-copy-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: -4px 0 0;
+  padding: 10px 14px 10px 28px;
+  border: 1px solid #dfe1e6;
+  border-radius: 4px;
+  background-color: #fafbfc;
+  font-size: 13px;
+}
+
+.jfv-copy-panel legend {
+  padding: 0 4px;
+  color: #5e6c84;
+}
+
+.jfv-copy-target {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jfv-copy-actions {
+  flex-basis: 100%;
+  display: flex;
+  gap: 8px;
 }

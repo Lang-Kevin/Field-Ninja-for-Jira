@@ -6,6 +6,11 @@ const m = vi.hoisted(() => ({
   saveSettings: vi.fn(async (_s: unknown) => {}),
   buildExport: vi.fn(async () => ({ format: 'field-ninja-for-jira', version: 1, prefs: {}, activations: [] })),
   getSyncUsage: vi.fn(async () => ({ bytes: 3174, quota: 102400 })),
+  listKnownBuckets: vi.fn(async () => [
+    { host: 'a.atlassian.net', projectKey: 'AAA', issueTypeId: 'bug' },
+    { host: 'a.atlassian.net', projectKey: 'AAA', issueTypeId: 'story' },
+    { host: 'b.atlassian.net', projectKey: 'BBB', issueTypeId: 'bug' },
+  ]),
 }));
 vi.mock('../../src/lib/storage-service', () => {
   const mk = (host: string, projectKey: string) => ({
@@ -246,5 +251,87 @@ describe('export', () => {
     expect(JSON.parse(await blob.text())).toMatchObject({ format: 'field-ninja-for-jira', version: 1 });
     click.mockRestore();
     create.mockRestore();
+  });
+});
+
+describe('copy to…', () => {
+  let warn: { mockRestore(): void };
+
+  beforeEach(() => {
+    for (const f of Object.values(m)) f.mockClear();
+    warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => warn.mockRestore());
+
+  /** Renders the 2 mocked prefs and opens the panel of the first row (a.atlassian.net — AAA — Bug). */
+  async function openPanel(): Promise<HTMLFieldSetElement> {
+    document.body.innerHTML = PAGE;
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await vi.waitFor(() => expect(document.querySelectorAll('.jfv-copy-btn')).toHaveLength(2));
+    document.querySelector<HTMLButtonElement>('.jfv-copy-btn')!.click();
+    return vi.waitFor(() => {
+      const panel = document.querySelector<HTMLFieldSetElement>('.jfv-copy-panel');
+      if (!panel) throw new Error('panel not open');
+      return panel;
+    });
+  }
+
+  function tick(panel: HTMLElement, i: number): void {
+    panel.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')[i].checked = true;
+  }
+
+  it('lists every known bucket except the source as "host — PROJ — Type"', async () => {
+    const panel = await openPanel();
+    expect(Array.from(panel.querySelectorAll('label'), (l) => l.textContent?.trim())).toEqual([
+      'a.atlassian.net — AAA — Story',
+      'b.atlassian.net — BBB — Bug',
+    ]);
+    expect(document.querySelector('.jfv-copy-btn')!.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  // RF-5
+  it('Copy sends union, never replace', async () => {
+    const panel = await openPanel();
+    tick(panel, 0);
+    tick(panel, 1);
+    panel.querySelector<HTMLButtonElement>('.jfv-copy-confirm')!.click();
+    await vi.waitFor(() => expect(box('storage-status').textContent).toBe('Copied to 2 issue type(s)'));
+    expect(m.writeBuckets).toHaveBeenCalledTimes(1);
+    expect(m.writeBuckets).toHaveBeenCalledWith(
+      [
+        { host: 'a.atlassian.net', projectKey: 'AAA', issueTypeId: 'story', hiddenFieldIds: ['lbl_priority'] },
+        { host: 'b.atlassian.net', projectKey: 'BBB', issueTypeId: 'bug', hiddenFieldIds: ['lbl_priority'] },
+      ],
+      'union'
+    );
+  });
+
+  it('nothing checked → Copy writes nothing', async () => {
+    const panel = await openPanel();
+    panel.querySelector<HTMLButtonElement>('.jfv-copy-confirm')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(m.writeBuckets).not.toHaveBeenCalled();
+  });
+
+  it('quota error → quotaMessage text, no status, panel stays open', async () => {
+    m.writeBuckets.mockRejectedValueOnce(new Error('quota'));
+    const panel = await openPanel();
+    tick(panel, 1);
+    panel.querySelector<HTMLButtonElement>('.jfv-copy-confirm')!.click();
+    await vi.waitFor(() => expect(box('storage-error').textContent).toBe('Sync storage full (100 KB)'));
+    expect(box('storage-status').hidden).toBe(true);
+    expect(panel.isConnected).toBe(true);
+  });
+
+  it('Cancel and a second "Copy to…" click close the panel', async () => {
+    const panel = await openPanel();
+    const btn = document.querySelector<HTMLButtonElement>('.jfv-copy-btn')!;
+    panel.querySelector<HTMLButtonElement>('.jfv-copy-cancel')!.click();
+    expect(document.querySelector('.jfv-copy-panel')).toBeNull();
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+    btn.click();
+    await vi.waitFor(() => expect(document.querySelector('.jfv-copy-panel')).not.toBeNull());
+    btn.click();
+    expect(document.querySelector('.jfv-copy-panel')).toBeNull();
   });
 });

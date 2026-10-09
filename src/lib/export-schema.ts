@@ -1,6 +1,6 @@
 /**
  * Export/import file schema (HR-21: import is a trust boundary). Pure — no
- * chrome.* calls (HR-5). Any violation rejects the WHOLE file with
+ * extension-API calls (HR-5). Any violation rejects the WHOLE file with
  * "<path>: <reason>"; output is always rebuilt into fresh objects.
  */
 import type { Settings } from '../types/prefs';

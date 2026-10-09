@@ -4,6 +4,7 @@ import {
   SETTINGS_STORAGE_KEY,
   DEFAULT_SETTINGS,
   LEGACY_PREFS_KEYS,
+  LOCAL_CACHE_PREFIXES,
   PREFS_V4_PREFIX,
   PREFS_V3_STORAGE_KEY,
   SYNC_QUOTA,
@@ -16,6 +17,7 @@ import {
   fieldLabelKey,
 } from '../types/prefs';
 import { isKnownIssueType } from './jira-context-resolver';
+import { EXPORT_FORMAT, type ExportFileV1 } from './export-schema';
 
 /**
  * Single gateway to chrome.storage.sync for this extension.
@@ -547,4 +549,80 @@ export async function pruneLocalCaches(): Promise<void> {
   } catch (e) {
     console.warn('[jfv] pruneLocalCaches failed', e);
   }
+}
+
+/**
+ * Bulk prefs write for import ('replace': file wins per bucket) and Copy-to
+ * ('union': the target keeps its own ids). In-memory merge, per-item + total
+ * precheck, then ONE set — all-or-nothing (HR-21). Buckets failing
+ * isWritableScope (HR-6) or ending up empty are skipped.
+ */
+export function writeBuckets(buckets: Pref[], mode: 'replace' | 'union'): Promise<void> {
+  return enqueueWrite(async () => {
+    const all = await chrome.storage.sync.get(null);
+    const changed: Record<string, PrefShard> = {};
+    for (const { host, projectKey, issueTypeId, hiddenFieldIds } of buckets) {
+      if (!isWritableScope(host, projectKey, issueTypeId)) continue;
+      const key = makeShardKey(host, projectKey);
+      const shard = changed[key] ?? { ...((all[key] as PrefShard | undefined) ?? {}) };
+      const merged = mode === 'union' ? [...idsOf(shard, issueTypeId), ...hiddenFieldIds] : hiddenFieldIds;
+      const ids = [...new Set(merged)];
+      if (ids.length === 0) continue;
+      shard[issueTypeId] = ids;
+      changed[key] = shard;
+    }
+    if (Object.keys(changed).length === 0) return;
+    for (const [k, shard] of Object.entries(changed)) checkItem(k, shard);
+    const bytes = usageOf({ ...all, ...changed });
+    if (bytes > SYNC_QUOTA.total) throw new StorageQuotaError('total', undefined, bytes, SYNC_QUOTA.total);
+    await syncSet(changed);
+  });
+}
+
+/** Unions scopes into the activations item with one set (import). Malformed scopes are skipped. */
+export function mergeActivations(scopes: string[]): Promise<void> {
+  const result = activationsWriteChain.then(async () => {
+    const valid = scopes.filter((s) => parseScopeKey(s) !== null);
+    if (valid.length === 0) return;
+    const updated: ActivationStore = { ...(await loadActivations()) };
+    for (const s of valid) updated[s] = true;
+    await syncSet({ [ACTIVATIONS_STORAGE_KEY]: updated });
+  });
+  activationsWriteChain = result.catch(() => undefined);
+  return result;
+}
+
+/** Copy-to targets: v4 buckets ∪ label-cache buckets (types the user has opened), known types only, deduped, sorted. */
+export async function listKnownBuckets(): Promise<{ host: string; projectKey: string; issueTypeId: string }[]> {
+  const found = new Map<string, { host: string; projectKey: string; issueTypeId: string }>();
+  const add = (host: string, projectKey: string, issueTypeId: string): void => {
+    if (isKnownIssueType(issueTypeId)) found.set(makePrefKey(host, projectKey, issueTypeId), { host, projectKey, issueTypeId });
+  };
+  for (const p of Object.values(await loadPrefs())) add(p.host, p.projectKey, p.issueTypeId);
+  const labelPrefix = LOCAL_CACHE_PREFIXES[0]; // 'jfv-field-labels:v2:'
+  for (const k of Object.keys(await chrome.storage.local.get(null))) {
+    const scope = k.startsWith(labelPrefix) ? scopeOfLocalCacheKey(k) : null;
+    const parts = scope ? parseScopeKey(scope) : null;
+    if (scope && parts) add(parts.host, parts.projectKey, k.slice(labelPrefix.length + scope.length + 1));
+  }
+  return [...found.keys()].sort((a, c) => a.localeCompare(c)).map((k) => found.get(k)!);
+}
+
+/** Export snapshot: non-empty v4 shards, activation scopes, exactly the 4 Settings keys (round-trips through validateExport). */
+export async function buildExport(): Promise<ExportFileV1> {
+  const all = await chrome.storage.sync.get(null);
+  const prefs: ExportFileV1['prefs'] = {};
+  for (const [k, v] of Object.entries(all)) {
+    const scope = parseShardKey(k);
+    if (scope && Object.keys(v as PrefShard).length > 0) prefs[makeScopeKey(scope.host, scope.projectKey)] = v as PrefShard;
+  }
+  const { showFieldButtons, debugOutline, shrinkCover, coverHeightPx } = await loadSettings();
+  return {
+    format: EXPORT_FORMAT,
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    prefs,
+    activations: Object.keys((all[ACTIVATIONS_STORAGE_KEY] as ActivationStore | undefined) ?? {}),
+    settings: { showFieldButtons, debugOutline, shrinkCover, coverHeightPx },
+  };
 }

@@ -30,12 +30,14 @@ export async function runChecks(d, tenant) {
 
   const TOGGLE = '.jfv-field-toggle';
   const HIDDEN = '[data-jfv-hidden]';
-  const PREFS_KEY = 'jiraFieldVisibility:v3';
-
+  // v4: one sync item per host+project; flatten back to "host:PROJ:type" so checks 6/14/16 are unchanged.
   const scopeKeys = () =>
     d.evalInExt(async () => {
-      const r = await chrome.storage.sync.get('jiraFieldVisibility:v3');
-      return Object.keys(r['jiraFieldVisibility:v3'] ?? {});
+      const all = await chrome.storage.sync.get(null);
+      const prefix = 'jiraFieldVisibility:v4:';
+      return Object.keys(all)
+        .filter((k) => k.startsWith(prefix))
+        .flatMap((k) => Object.keys(all[k]).map((t) => `${k.slice(prefix.length)}:${t}`));
     });
 
   // Every run starts from a clean storage state — a persistent profile would
@@ -232,7 +234,7 @@ export async function runChecks(d, tenant) {
 
   // --- legacy keys / non-eligible URL ---------------------------------------
   const allKeys = await d.evalInExt(async () => Object.keys(await chrome.storage.sync.get(null)));
-  const legacy = allKeys.filter((k) => k === 'jiraFieldVisibility:v1' || k === 'jiraFieldVisibility:v2');
+  const legacy = allKeys.filter((k) => ['jiraFieldVisibility:v1', 'jiraFieldVisibility:v2', 'jiraFieldVisibility:v3'].includes(k));
   check('19 no legacy storage keys', legacy.length === 0, allKeys.join(', '));
 
   const off = await d.newPage();

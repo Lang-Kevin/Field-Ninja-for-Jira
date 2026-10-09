@@ -132,8 +132,8 @@ let sectionFieldMap: Record<string, string[]> = {};
  * fieldId → human label, persisted to chrome.storage.local per issue type. A
  * field hidden inside a collapsed section / inactive tab is lazy-removed from
  * the DOM by Jira on reload, so listAll() can't re-derive its label — this
- * cache lets the popup still name (and thus unhide) it. ponytail: unbounded;
- * prune per-issue-type only if storage.local quota ever bites.
+ * cache lets the popup still name (and thus unhide) it. The SW's
+ * pruneLocalCaches() drops it once its host:project has neither prefs nor an activation.
  */
 let labelById: Record<string, string> = {};
 
@@ -571,7 +571,7 @@ function init(): void {
 
   // Mandatory sibling to onPrefsChanged: activation writes land on a
   // different storage key (ACTIVATIONS_STORAGE_KEY), so onPrefsChanged's
-  // PREFS_STORAGE_KEY-scoped listener never fires for them. Without this,
+  // v4-shard-scoped listener never fires for them. Without this,
   // "Enable here"/"Disable here" from the popup would need a reload
   // to take effect on an already-open tab.
   onActivationsChanged((a) => {

@@ -2,6 +2,15 @@
 
 Format: gruppiert nach Feature/Milestone, nicht nach Einzel-Commit. Commit-Hashes in Klammern zur Nachvollziehbarkeit.
 
+## [Unreleased]
+
+- refactor(selectors): Jira DOM selectors centralized in `src/lib/jira-selectors.ts`, no behaviour change (b845424).
+- feat(popup): popup waits for activation ACK (`GET_FIELDS.isActive`, 25ms poll, 200ms cap) instead of a fixed 200ms sleep; former empty catches now log `[jfv]` `console.warn` (6164e3d).
+- feat(options): search box filters saved prefs by project (6a3328a).
+- test: unit tests for service worker + toggle overlay; vitest 20 files / 148 tests (861407d).
+- test(firefox): `hasSession()` ignores expired session cookies; Firefox e2e 20/20 (check 18 skipped, tenant has no cover) (3301185).
+- chore: spike script removed (12afdf3); stale `PLAN.md` removed (89984b8).
+
 ## [0.4.0] — 2026-08-13
 
 `manifest.json`/`package.json` auf `0.4.0` angehoben. Minor, weil ein neues Build-Target dazukommt; bestehendes Chrome-Verhalten ist unverändert.

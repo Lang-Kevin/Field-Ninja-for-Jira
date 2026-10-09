@@ -7,13 +7,16 @@ Reference doc for the real-tenant e2e layer added on `test/cross-browser-e2e`
 
 - **Chrome: green.** `npm run e2e:chrome` runs headless and reports
   `chrome: 20/20 passed` (check 18 SKIPs until the cover image of §2 exists).
-- **Firefox: blocked.** Login works, but WebDriver-BiDi refuses every
-  navigation to `moz-extension://…` with
-  `unsupported operation … not allowed in this context`, so the popup-based
-  checks cannot start. The pref `remote.system-access-check.enabled=false`
-  does not lift it, and Firefox exposes no extension target to attach to
-  instead. Open question: switch the Firefox runner to geckodriver/Selenium
-  (new devDependency) or drop Firefox from the scripted layer.
+- **Firefox: runs via geckodriver.** WebDriver-BiDi (the former Puppeteer
+  runner) refuses every navigation to `moz-extension://…`, so
+  `scripts/e2e-firefox.mjs` now uses classic WebDriver (`selenium-webdriver`).
+  Marionette also blocks `moz-extension://` unless Firefox itself starts with
+  `-remote-allow-system-access`, which geckodriver rejects as a capability. The
+  script therefore spawns Firefox itself and attaches geckodriver with
+  `--connect-existing`. Commit 5116fc8 records "20/20 headless"; no pass count
+  is recorded in this repo beyond that (not yet re-measured since).
+  Known degradation: no BiDi console channel, so checks 12/20 only see errors
+  from an injected page hook, not content-script-world errors.
 
 ## 1. Layers
 
@@ -21,7 +24,7 @@ Reference doc for the real-tenant e2e layer added on `test/cross-browser-e2e`
 |---|---|---|---|---|
 | Unit | Vitest, happy-dom | pure logic (`storage-service`, `jira-context-resolver`) | storage isolation, URL-eligibility matrix, key/scope logic | anything DOM/browser-runtime |
 | Integration | Puppeteer, static fixtures | unpacked `dist/` against `tests/fixtures/*.html` | content-script behaviour against a controlled DOM shape | Jira's real, changing markup; Firefox build |
-| Real-tenant e2e | Playwright-core (Chrome) / Puppeteer BiDi (Firefox) | unpacked `dist/` + `dist-firefox/` against `fieldninjaforjira.atlassian.net` | end-to-end behaviour on live Jira DOM, Chrome/Firefox build parity | anything not covered by the 20 checks below (§5) |
+| Real-tenant e2e | Playwright-core (Chrome) / Selenium + geckodriver (Firefox) | unpacked `dist/` + `dist-firefox/` against `fieldninjaforjira.atlassian.net` | end-to-end behaviour on live Jira DOM, Chrome/Firefox build parity | anything not covered by the 20 checks below (§5) |
 
 ## 2. One-time setup
 
@@ -29,6 +32,7 @@ Reference doc for the real-tenant e2e layer added on `test/cross-browser-e2e`
 - Set `JIRA_EMAIL` and `JIRA_API_TOKEN` in the environment (or the gitignored `auth.json`).
 - Run `npm run seed:jira` — idempotent, provisions/verifies the tenant, writes `tests/tenant.json`.
 - Attach a cover image to `FNCM-1` by hand once (no public REST endpoint for this) — open the issue, attach any PNG, "Add cover image". Until this is done, check 18 (shrink-cover) is SKIPped, not failed.
+- Firefox prerequisites: system Firefox ≥153 (`C:/Program Files/Mozilla Firefox/firefox.exe`, or set `JFV_FIREFOX`), `npm install` (brings `selenium-webdriver`), network on first run (Selenium Manager downloads geckodriver), Windows PowerShell (XPI packing), `npm run build:firefox` before each run, Marionette port 2828 free.
 - One headed login per browser profile, once:
   - Chrome: `npm run e2e:chrome` — first run opens a window for login, session then persists in `.playwright-jira-profile/` (gitignored).
   - Firefox: `node scripts/e2e-firefox.mjs --headed` — session persists in `.firefox-jira-profile/` (gitignored).
@@ -107,8 +111,21 @@ implements the same driver interface and calls `runChecks`.
 
 - Chrome ≥137 ignores `--load-extension` on installed Chrome, so Chrome for
   Testing is used instead (`scripts/pw-real.mjs:29-32`).
-- Playwright cannot install unsigned Firefox add-ons; hence Puppeteer ≥24 via
-  WebDriver-BiDi for the Firefox runner.
+- Playwright cannot install unsigned Firefox add-ons. WebDriver-BiDi
+  (Puppeteer) can, but forbids navigation to `moz-extension://…`
+  ("unsupported operation … not allowed in this context"), making popup,
+  options page and storage unreachable. The Firefox runner uses
+  `selenium-webdriver` + geckodriver (Selenium Manager fetches the driver; first
+  run needs network). Firefox is spawned by the script with `-marionette
+  -remote-allow-system-access -no-remote -profile .firefox-jira-profile` and
+  geckodriver attaches via `--connect-existing` on Marionette port 2828
+  (override: `JFV_MARIONETTE_PORT`). Prefs (pinned extension UUID,
+  `xpinstall.signatures.required=false`) are written to the profile's `user.js`.
+  The extension is installed as a temporary unsigned XPI: `scripts/firefox-xpi.mjs`
+  zips `dist-firefox/` to `field-ninja.xpi` (gitignored) with PowerShell
+  `Compress-Archive`, so the runner is Windows-only. Run `npm run build:firefox`
+  first (the runner aborts if `dist-firefox/manifest.json` or its `gecko.id`
+  is missing).
 - Playwright MCP and `agent-browser` both launch a browser without
   `--load-extension` — they can only inspect Jira's DOM, never the
   extension's own toggles/state. Neither can verify extension behaviour.

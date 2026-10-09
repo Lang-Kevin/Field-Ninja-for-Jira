@@ -200,7 +200,7 @@ const adapter = {
 // Der Hostname ist kein Login-Signal — nur das session.token-Cookie zählt.
 // Selenium liefert Cookies der aktuellen Domain, also erst zum Tenant navigieren.
 const hasSession = async () =>
-  (await driver.manage().getCookies()).some((c) => /session\.token/.test(c.name));
+  (await driver.manage().getCookies()).some((c) => /session\.token/.test(c.name) && (!c.expiry || c.expiry > Date.now() / 1000));
 
 {
   const h = await newPage();

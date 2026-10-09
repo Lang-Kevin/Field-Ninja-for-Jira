@@ -1,12 +1,16 @@
-import type { ActivationStore, Pref, PrefsStore, Settings } from '../types/prefs';
+import type { ActivationStore, Pref, PrefShard, PrefsStore, Settings } from '../types/prefs';
 import {
-  PREFS_STORAGE_KEY,
   ACTIVATIONS_STORAGE_KEY,
   SETTINGS_STORAGE_KEY,
   DEFAULT_SETTINGS,
   LEGACY_PREFS_KEYS,
+  PREFS_V4_PREFIX,
+  SYNC_QUOTA,
   makePrefKey,
   makeScopeKey,
+  makeShardKey,
+  parseScopeKey,
+  parseShardKey,
   fieldLabelKey,
 } from '../types/prefs';
 import { isKnownIssueType } from './jira-context-resolver';
@@ -23,35 +27,136 @@ import { isKnownIssueType } from './jira-context-resolver';
  * so it isn't a general "is storage settled" signal and shouldn't be reused
  * as one elsewhere (e.g. the options page) without re-checking that scoping.
  *
- * Storage escape-hatch note: savePrefs caps the single v3 item
- * (PREFS_STORAGE_KEY, `jiraFieldVisibility:v3`) at QUOTA_BYTES_PER_ITEM (8KB).
- * If per-host × per-project × per-type entry count ever exceeds that, split
- * into per-project keys (e.g. `jiraFieldVisibility:v3:${projectKey}`)
- * (chrome.storage.sync allows up to 512 items / 100KB total).
+ * Storage layout (v4): one sync item per host+project
+ * (`jiraFieldVisibility:v4:<host>:<PROJ>`), each capped at
+ * QUOTA_BYTES_PER_ITEM (8KB). writeShard prechecks it and throws
+ * StorageQuotaError instead of letting the browser reject the write.
+ *
+ * loadPrefs() assembles the legacy-shaped PrefsStore from all shards, so
+ * callers are unchanged. Every sync set/remove goes through syncSet/syncRemove,
+ * which rethrow browser quota errors as StorageQuotaError.
  */
 
-export async function loadPrefs(): Promise<PrefsStore> {
-  const result = await chrome.storage.sync.get(PREFS_STORAGE_KEY);
-  return (result[PREFS_STORAGE_KEY] as PrefsStore | undefined) ?? {};
+export class StorageQuotaError extends Error {
+  constructor(
+    public kind: 'item' | 'total' | 'rate',
+    public scope?: string,
+    public bytes?: number,
+    public limit?: number
+  ) {
+    super(`[jfv] sync quota exceeded: ${kind}${scope ? ` (${scope})` : ''}${bytes !== undefined ? ` ${bytes}B > ${limit}B` : ''}`);
+    this.name = 'StorageQuotaError';
+  }
 }
 
-export async function savePrefs(store: PrefsStore): Promise<void> {
-  const payload = { [PREFS_STORAGE_KEY]: store };
-  // chrome.storage.sync caps a single item at QUOTA_BYTES_PER_ITEM (8KB).
-  // Checking here surfaces a clear error instead of a silently-dropped write
-  // (callers like ui-overlay.ts fire-and-forget toggleField).
-  const bytes = new TextEncoder().encode(JSON.stringify(payload)).length;
-  if (bytes > chrome.storage.sync.QUOTA_BYTES_PER_ITEM) {
-    throw new Error(
-      `jiraFieldVisibility prefs (${bytes}B) exceed chrome.storage.sync's per-item quota (${chrome.storage.sync.QUOTA_BYTES_PER_ITEM}B)`
-    );
+const kb = (n: number): number => +(n / 1024).toFixed(1);
+
+/** Single source of user-facing quota text; null for non-quota errors. */
+export function quotaMessage(e: unknown): string | null {
+  if (!(e instanceof StorageQuotaError)) return null;
+  if (e.kind === 'rate') return 'Too many changes per minute — try again shortly';
+  if (e.kind === 'total') return `Sync storage full (${kb(e.limit ?? SYNC_QUOTA.total)} KB)`;
+  const scope = e.scope ? parseScopeKey(e.scope) : null;
+  const who = scope ? `${scope.projectKey} on ${scope.host}` : 'This project';
+  const limit = kb(e.limit ?? SYNC_QUOTA.perItem);
+  const size = e.bytes !== undefined ? `${kb(e.bytes)} KB > ${limit} KB` : `${limit} KB`;
+  return `${who} has too many hidden fields (${size} per project)`;
+}
+
+const utf8 = (s: string): number => new TextEncoder().encode(s).length;
+
+/** Chrome's per-item formula: utf8(key) + utf8(JSON(value)). */
+function itemBytes(key: string, value: unknown): number {
+  return utf8(key) + utf8(JSON.stringify(value));
+}
+
+function usageOf(all: Record<string, unknown>): number {
+  return Object.entries(all).reduce((n, [k, v]) => n + itemBytes(k, v), 0);
+}
+
+/** Throws StorageQuotaError('item') before the browser ever sees an oversized shard. */
+function checkItem(key: string, value: unknown): void {
+  const bytes = itemBytes(key, value);
+  if (bytes > SYNC_QUOTA.perItem) {
+    throw new StorageQuotaError('item', key.slice(PREFS_V4_PREFIX.length), bytes, SYNC_QUOTA.perItem);
   }
-  await chrome.storage.sync.set(payload);
+}
+
+// Order matters: "QUOTA_BYTES_PER_ITEM" contains "QUOTA_BYTES", and Chrome's rate
+// messages contain "quota". Firefox throws a generic QuotaExceededError.
+function toQuotaError(e: unknown): unknown {
+  const err = e as { name?: unknown; message?: unknown } | null;
+  const msg = `${String(err?.name ?? '')} ${String(err?.message ?? e)}`;
+  if (/QUOTA_BYTES_PER_ITEM/.test(msg)) return new StorageQuotaError('item');
+  if (/MAX_(SUSTAINED_)?WRITE_OPERATIONS/.test(msg)) return new StorageQuotaError('rate');
+  if (/QUOTA_BYTES|quota/i.test(msg)) return new StorageQuotaError('total');
+  return e;
+}
+
+async function syncSet(items: Record<string, unknown>): Promise<void> {
+  try {
+    await chrome.storage.sync.set(items);
+  } catch (e) {
+    throw toQuotaError(e);
+  }
+}
+
+async function syncRemove(keys: string | string[]): Promise<void> {
+  try {
+    await chrome.storage.sync.remove(keys);
+  } catch (e) {
+    throw toQuotaError(e);
+  }
+}
+
+/** Own-property read: an issue-type slug like 'constructor' must not hit Object.prototype. */
+function idsOf(shard: PrefShard, issueTypeId: string): string[] {
+  return Object.hasOwn(shard, issueTypeId) ? shard[issueTypeId] : [];
+}
+
+/** Reads exactly one shard; returns a mutable copy ({} when missing). */
+async function readShard(host: string, projectKey: string): Promise<PrefShard> {
+  const key = makeShardKey(host, projectKey);
+  const res = await chrome.storage.sync.get(key);
+  return { ...((res[key] as PrefShard | undefined) ?? {}) };
+}
+
+/** Empty shard → remove the item; otherwise per-item precheck, then one set. */
+async function writeShard(host: string, projectKey: string, shard: PrefShard): Promise<void> {
+  const key = makeShardKey(host, projectKey);
+  if (Object.keys(shard).length === 0) {
+    await syncRemove(key);
+    return;
+  }
+  checkItem(key, shard);
+  await syncSet({ [key]: shard });
+}
+
+/** v4 shards inside a full `sync.get(null)` result → legacy-shaped PrefsStore. */
+function expandShards(all: Record<string, unknown>): PrefsStore {
+  const store: PrefsStore = {};
+  for (const [key, value] of Object.entries(all)) {
+    const scope = parseShardKey(key);
+    if (!scope) continue;
+    for (const [issueTypeId, hiddenFieldIds] of Object.entries(value as PrefShard)) {
+      store[makePrefKey(scope.host, scope.projectKey, issueTypeId)] = { ...scope, issueTypeId, hiddenFieldIds };
+    }
+  }
+  return store;
+}
+
+export async function loadPrefs(): Promise<PrefsStore> {
+  return expandShards(await chrome.storage.sync.get(null));
+}
+
+/** Sync bytes in use (own count, Chrome's formula) — no getBytesInUse, Firefox support unverified. */
+export async function getSyncUsage(): Promise<{ bytes: number; quota: number }> {
+  return { bytes: usageOf(await chrome.storage.sync.get(null)), quota: SYNC_QUOTA.total };
 }
 
 /**
- * Returns the pref for a host+project+issueType combo. Exact-key lookup only
- * — no fallback chain. A null projectKey never matches a stored pref.
+ * Returns the pref for a host+project+issueType combo. Reads exactly one
+ * shard. A null projectKey never matches a stored pref.
  */
 export async function getPref(
   host: string,
@@ -61,47 +166,48 @@ export async function getPref(
   if (projectKey === null) {
     return { host, projectKey: '', issueTypeId, hiddenFieldIds: [] };
   }
-  const store = await loadPrefs();
-  const exactKey = makePrefKey(host, projectKey, issueTypeId);
-  return store[exactKey] ?? { host, projectKey, issueTypeId, hiddenFieldIds: [] };
+  const shard = await readShard(host, projectKey);
+  return { host, projectKey, issueTypeId, hiddenFieldIds: idsOf(shard, issueTypeId) };
 }
 
-/** Clears all per-issue-type hidden-field prefs. Leaves Settings untouched. */
-export async function clearPrefs(): Promise<void> {
-  await chrome.storage.sync.remove(PREFS_STORAGE_KEY);
+/** Removes every v4 shard. Activations and settings stay (HR-16). */
+export function clearPrefs(): Promise<void> {
+  return enqueueWrite(async () => {
+    const all = await chrome.storage.sync.get(null);
+    const keys = Object.keys(all).filter((k) => k.startsWith(PREFS_V4_PREFIX));
+    if (keys.length > 0) await syncRemove(keys);
+  });
 }
 
-/** Deletes the pref for a single host+project+issueType combo. */
-export async function clearPref(
+/** Deletes one host+project+issueType bucket; serialized with every other prefs write (HR-4). */
+export function clearPref(
   host: string,
   projectKey: string | null,
   issueTypeId: string
 ): Promise<void> {
-  if (!host || !projectKey) return;
-  const store = await loadPrefs();
-  const key = makePrefKey(host, projectKey, issueTypeId);
-  if (!(key in store)) return;
-  const updatedStore = { ...store };
-  delete updatedStore[key];
-  await savePrefs(updatedStore);
+  return enqueueWrite(async () => {
+    if (!host || !projectKey) return;
+    const shard = await readShard(host, projectKey);
+    if (!Object.hasOwn(shard, issueTypeId)) return;
+    delete shard[issueTypeId];
+    await writeShard(host, projectKey, shard);
+  });
 }
 
 /**
- * Subscribes to changes of the prefs key in chrome.storage.sync — fires for
- * writes from ANY context, including this one (e.g. content-entry.ts's own
- * toggleField calls), so callers can treat storage as the single source of
- * truth instead of re-reading it speculatively after a local write race.
+ * Fires when any v4 shard changes in sync — writes from ANY context, including
+ * this one. No snapshot is passed: content-entry.ts re-reads via getPref.
  * Returns an unsubscribe function.
  */
-export function onPrefsChanged(cb: (store: PrefsStore) => void): () => void {
+export function onPrefsChanged(cb: () => void): () => void {
   const listener = (
     changes: { [key: string]: chrome.storage.StorageChange },
     areaName: string
   ): void => {
-    if (areaName !== 'sync' || !(PREFS_STORAGE_KEY in changes)) {
+    if (areaName !== 'sync' || !Object.keys(changes).some((k) => k.startsWith(PREFS_V4_PREFIX))) {
       return;
     }
-    cb((changes[PREFS_STORAGE_KEY].newValue as PrefsStore | undefined) ?? {});
+    cb();
   };
   chrome.storage.onChanged.addListener(listener);
   return () => chrome.storage.onChanged.removeListener(listener);
@@ -124,7 +230,7 @@ let settingsWriteChain: Promise<unknown> = Promise.resolve();
 export function saveSettings(settings: Partial<Settings>): Promise<void> {
   const result = settingsWriteChain.then(async () => {
     const current = await loadSettings();
-    await chrome.storage.sync.set({ [SETTINGS_STORAGE_KEY]: { ...current, ...settings } });
+    await syncSet({ [SETTINGS_STORAGE_KEY]: { ...current, ...settings } });
   });
   settingsWriteChain = result.catch(() => undefined);
   return result;
@@ -166,34 +272,20 @@ async function doToggleField(
   if (!isWritableScope(host, projectKey, issueTypeId)) {
     return loadPrefs();
   }
-  const resolvedProjectKey = projectKey as string;
-
-  const store = await loadPrefs();
-
-  const exactKey = makePrefKey(host, resolvedProjectKey, issueTypeId);
-  const seed = store[exactKey] ?? { host, projectKey: resolvedProjectKey, issueTypeId, hiddenFieldIds: [] };
-
-  const hiddenSet = new Set(seed.hiddenFieldIds);
+  const shard = await readShard(host, projectKey as string);
+  const hiddenSet = new Set(idsOf(shard, issueTypeId));
   if (hidden) {
     hiddenSet.add(fieldId);
   } else {
     hiddenSet.delete(fieldId);
   }
-
-  const updatedPref: Pref = {
-    host,
-    projectKey: resolvedProjectKey,
-    issueTypeId,
-    hiddenFieldIds: [...hiddenSet],
-  };
-
-  const updatedStore: PrefsStore = {
-    ...store,
-    [exactKey]: updatedPref,
-  };
-
-  await savePrefs(updatedStore);
-  return updatedStore;
+  if (hiddenSet.size > 0) {
+    shard[issueTypeId] = [...hiddenSet];
+  } else {
+    delete shard[issueTypeId];
+  }
+  await writeShard(host, projectKey as string, shard);
+  return loadPrefs();
 }
 
 // Serializes toggleField calls so a rapid sequence's read-modify-write steps
@@ -254,38 +346,6 @@ export async function loadFieldLabels(host: string, projectKey: string, issueTyp
   }
 }
 
-async function doSetHiddenFields(
-  host: string,
-  projectKey: string | null,
-  issueTypeId: string,
-  deduped: string[]
-): Promise<PrefsStore> {
-  // Same gateway guard as doToggleField: never seed a bucket for an
-  // 'unknown'/not-ready issueTypeId.
-  if (!isWritableScope(host, projectKey, issueTypeId)) {
-    return loadPrefs();
-  }
-  const resolvedProjectKey = projectKey as string;
-
-  const store = await loadPrefs();
-  const key = makePrefKey(host, resolvedProjectKey, issueTypeId);
-
-  const updatedPref: Pref = {
-    host,
-    projectKey: resolvedProjectKey,
-    issueTypeId,
-    hiddenFieldIds: deduped,
-  };
-
-  const updatedStore: PrefsStore = {
-    ...store,
-    [key]: updatedPref,
-  };
-
-  await savePrefs(updatedStore);
-  return updatedStore;
-}
-
 // Runs `fn` serialized after every prior queued write, converging
 // issuedWriteSeq/committedWriteSeq exactly like toggleField did inline —
 // shared by toggleField and setHiddenFields so both write paths are
@@ -306,10 +366,8 @@ function enqueueWrite<T>(fn: () => Promise<T>): Promise<T> {
 
 /**
  * Sets the whole hidden-field list for one project+issueType combo in a
- * single write (vs. N sequential toggleField calls). Empty list clears the
- * pref entirely via clearPref. Non-empty writes are routed through the same
- * writeQueue as toggleField so overlapping read-modify-write calls can't
- * clobber each other.
+ * single shard write. Empty list clears the bucket via clearPref (which
+ * enqueues itself — never call it from inside enqueueWrite).
  */
 export async function setHiddenFields(
   host: string,
@@ -322,8 +380,13 @@ export async function setHiddenFields(
     await clearPref(host, projectKey, issueTypeId);
     return;
   }
-
-  await enqueueWrite(() => doSetHiddenFields(host, projectKey, issueTypeId, deduped));
+  await enqueueWrite(async () => {
+    // Same gateway guard as doToggleField (HR-6).
+    if (!isWritableScope(host, projectKey, issueTypeId)) return;
+    const shard = await readShard(host, projectKey as string);
+    shard[issueTypeId] = deduped;
+    await writeShard(host, projectKey as string, shard);
+  });
 }
 
 export function toggleField(
@@ -367,7 +430,7 @@ export function setActivated(host: string, projectKey: string, active: boolean):
     } else {
       delete updated[key];
     }
-    await chrome.storage.sync.set({ [ACTIVATIONS_STORAGE_KEY]: updated });
+    await syncSet({ [ACTIVATIONS_STORAGE_KEY]: updated });
   });
   activationsWriteChain = result.catch(() => undefined);
   return result;
@@ -397,7 +460,7 @@ const LEGACY_LOCAL_KEY_PREFIXES = [
 /**
  * One-shot cleanup of pre-v3 storage: discards legacy sync prefs keys and
  * the now-orphaned local field-label/tab/section caches. Never touches
- * PREFS_STORAGE_KEY, SETTINGS_STORAGE_KEY or ACTIVATIONS_STORAGE_KEY.
+ * v4 shards, the v3 key (migration owns it), SETTINGS_STORAGE_KEY or ACTIVATIONS_STORAGE_KEY.
  */
 export async function dropLegacyPrefs(): Promise<void> {
   await chrome.storage.sync.remove(LEGACY_PREFS_KEYS);

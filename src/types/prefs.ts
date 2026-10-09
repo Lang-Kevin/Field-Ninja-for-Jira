@@ -37,7 +37,6 @@ export function sectionCacheKey(host: string, projectKey: string, issueTypeId: s
   return `jfv-section-fields:v2:${host}:${projectKey}:${issueTypeId}`;
 }
 
-export const PREFS_STORAGE_KEY = 'jiraFieldVisibility:v3';
 export const ACTIVATIONS_STORAGE_KEY = 'jiraFieldVisibility:activations:v1';
 
 /** Old prefs keys — discarded on upgrade, no migration. */

@@ -5,12 +5,14 @@ import {
   DEFAULT_SETTINGS,
   LEGACY_PREFS_KEYS,
   PREFS_V4_PREFIX,
+  PREFS_V3_STORAGE_KEY,
   SYNC_QUOTA,
   makePrefKey,
   makeScopeKey,
   makeShardKey,
   parseScopeKey,
   parseShardKey,
+  scopeOfLocalCacheKey,
   fieldLabelKey,
 } from '../types/prefs';
 import { isKnownIssueType } from './jira-context-resolver';
@@ -470,5 +472,78 @@ export async function dropLegacyPrefs(): Promise<void> {
   );
   if (staleKeys.length > 0) {
     await chrome.storage.local.remove(staleKeys);
+  }
+}
+
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/**
+ * One-time v3 → v4 move (HR-3). SW only, on no write chain (HR-4). Fill-missing
+ * (v4 wins per type), quota precheck before any write, ONE set, remove(v3) only
+ * after that set resolved. Idempotent: the v3 key's existence is the only marker.
+ */
+export async function migrateV3ToV4(): Promise<{ migrated: number; skipped: number }> {
+  const all = await chrome.storage.sync.get(null);
+  const v3 = all[PREFS_V3_STORAGE_KEY];
+  if (!isPlainObject(v3)) return { migrated: 0, skipped: 0 };
+
+  const changed: Record<string, PrefShard> = {};
+  let migrated = 0;
+  let skipped = 0;
+  for (const [key, raw] of Object.entries(v3)) {
+    // Trust the value fields, never the composite key.
+    const { host, projectKey, issueTypeId, hiddenFieldIds: ids } = isPlainObject(raw) ? raw : ({} as Record<string, unknown>);
+    if (
+      typeof host !== 'string' || !host ||
+      typeof projectKey !== 'string' || !projectKey ||
+      typeof issueTypeId !== 'string' || !issueTypeId || !isKnownIssueType(issueTypeId) ||
+      !Array.isArray(ids) || !ids.every((id) => typeof id === 'string')
+    ) {
+      skipped += 1;
+      console.warn(`[jfv] migrateV3ToV4: skipped malformed v3 entry "${key}"`);
+      continue;
+    }
+    const shardKey = makeShardKey(host, projectKey);
+    const shard = changed[shardKey] ?? { ...((all[shardKey] as PrefShard | undefined) ?? {}) };
+    if (ids.length === 0 || Object.hasOwn(shard, issueTypeId)) continue; // v4 wins
+    shard[issueTypeId] = [...new Set(ids as string[])];
+    changed[shardKey] = shard;
+    migrated += 1;
+  }
+
+  for (const [k, shard] of Object.entries(changed)) checkItem(k, shard);
+  // ponytail: total is checked for the moment of the set (v3 still present) —
+  // that is what the browser enforces. Ceiling: a nearly full sync area keeps
+  // retrying every startup until the user frees space.
+  const bytes = usageOf({ ...all, ...changed });
+  if (bytes > SYNC_QUOTA.total) throw new StorageQuotaError('total', undefined, bytes, SYNC_QUOTA.total);
+  if (migrated > 0) await syncSet(changed);
+  await syncRemove(PREFS_V3_STORAGE_KEY);
+  return { migrated, skipped };
+}
+
+/**
+ * Drops local label/tab/section caches whose host:project has neither a
+ * non-empty v4 shard nor an activation. No-op while v3 still exists
+ * (migration pending). Best effort: logs, never throws.
+ */
+export async function pruneLocalCaches(): Promise<void> {
+  try {
+    const all = await chrome.storage.sync.get(null);
+    if (PREFS_V3_STORAGE_KEY in all) return;
+    const keep = new Set(Object.keys((all[ACTIVATIONS_STORAGE_KEY] as ActivationStore | undefined) ?? {}));
+    for (const [k, v] of Object.entries(all)) {
+      const scope = parseShardKey(k);
+      if (scope && Object.keys(v as PrefShard).length > 0) keep.add(makeScopeKey(scope.host, scope.projectKey));
+    }
+    const local = await chrome.storage.local.get(null);
+    const stale = Object.keys(local).filter((k) => {
+      const scope = scopeOfLocalCacheKey(k);
+      return scope !== null && !keep.has(scope);
+    });
+    if (stale.length > 0) await chrome.storage.local.remove(stale);
+  } catch (e) {
+    console.warn('[jfv] pruneLocalCaches failed', e);
   }
 }

@@ -7,14 +7,50 @@ import {
   getPref,
   loadActivations,
   setActivated,
+  buildExport,
+  getSyncUsage,
+  mergeActivations,
+  quotaMessage,
+  saveSettings,
+  writeBuckets,
 } from '../lib/storage-service';
+import { validateExport } from '../lib/export-schema';
 import type { Pref, PrefsStore } from '../types/prefs';
-import { makeScopeKey } from '../types/prefs';
+import { makeScopeKey, parseScopeKey } from '../types/prefs';
 
 const PREFS_LIST_ID = 'prefs-list';
 const CLEAR_ALL_BTN_ID = 'clear-all-btn';
 const SEARCH_ID = 'prefs-search';
 const NO_MATCH_ID = 'prefs-no-match';
+const STORAGE_USAGE_ID = 'storage-usage';
+const STORAGE_ERROR_ID = 'storage-error';
+const STORAGE_STATUS_ID = 'storage-status';
+const EXPORT_BTN_ID = 'export-btn';
+const IMPORT_INPUT_ID = 'import-input';
+const MAX_IMPORT_BYTES = 256 * 1024;
+
+/** Sets the text of #storage-error / #storage-status; null hides the element. */
+function showMessage(id: string, text: string | null): void {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = text === null ? '' : text.length > 300 ? `${text.slice(0, 300)}…` : text;
+  el.hidden = text === null;
+}
+
+// ponytail: same 5 lines as popup.ts — two entry points, no shared UI module worth adding.
+async function refreshUsage(): Promise<void> {
+  const el = document.getElementById(STORAGE_USAGE_ID);
+  if (!el) return;
+  try {
+    const { bytes, quota } = await getSyncUsage();
+    el.textContent = `Sync storage: ${(bytes / 1024).toFixed(1)} of ${Math.round(quota / 1024)} KB`;
+    el.classList.toggle('jfv-warning', bytes >= quota * 0.8);
+  } catch (e) {
+    console.warn('[jfv] usage unavailable', e);
+    el.textContent = '';
+    el.classList.remove('jfv-warning');
+  }
+}
 
 /** Hide groups whose data-search text lacks the query (case-insensitive). */
 function applyFilter(): void {
@@ -79,6 +115,7 @@ async function render(store: PrefsStore): Promise<void> {
       pendingStore = null;
       await doRender(next);
     }
+    await refreshUsage();
   } finally {
     rendering = false;
   }
@@ -263,6 +300,70 @@ async function handleDeactivate(host: string, projectKey: string): Promise<void>
   void render(await loadPrefs());
 }
 
+// HR-17: Blob + <a download>, no downloads permission.
+async function handleExport(): Promise<void> {
+  const url = URL.createObjectURL(
+    new Blob([JSON.stringify(await buildExport(), null, 2)], { type: 'application/json' })
+  );
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `field-ninja-export-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a); // Firefox needs the anchor in the document
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/**
+ * HR-21 trust boundary: size check before reading, full validateExport,
+ * confirm, then all-or-nothing prefs write (quota precheck inside
+ * writeBuckets); activations/settings only after prefs landed.
+ */
+export async function handleImportFile(file: File): Promise<void> {
+  showMessage(STORAGE_ERROR_ID, null);
+  showMessage(STORAGE_STATUS_ID, null);
+  if (file.size > MAX_IMPORT_BYTES) {
+    showMessage(STORAGE_ERROR_ID, `Import file too large (${Math.ceil(file.size / 1024)} KB > 256 KB).`);
+    return;
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(await file.text());
+  } catch {
+    showMessage(STORAGE_ERROR_ID, 'Import failed: not a valid JSON file.');
+    return;
+  }
+  const result = validateExport(raw);
+  if (!result.ok) {
+    showMessage(STORAGE_ERROR_ID, `Import failed: ${result.error}`);
+    return;
+  }
+  const { data, summary: s } = result;
+  const what = `${s.projects} projects, ${s.buckets} issue types, ${s.fields} hidden fields, ${s.activations} activations${s.hasSettings ? ', settings' : ''}`;
+  if (!confirm(`Import ${what}? Matching issue types are overwritten, others kept.`)) return;
+
+  const buckets: Pref[] = Object.entries(data.prefs).flatMap(([scope, shard]) => {
+    const { host, projectKey } = parseScopeKey(scope)!; // validateExport guarantees "<host>:<PROJ>"
+    return Object.entries(shard).map(([issueTypeId, hiddenFieldIds]) => ({ host, projectKey, issueTypeId, hiddenFieldIds }));
+  });
+  try {
+    await writeBuckets(buckets, 'replace');
+  } catch (e) {
+    console.warn('[jfv] import failed', e);
+    showMessage(STORAGE_ERROR_ID, quotaMessage(e) ?? 'Import failed.');
+    return;
+  }
+  try {
+    await mergeActivations(data.activations);
+    if (data.settings) await saveSettings(data.settings);
+    showMessage(STORAGE_STATUS_ID, `Imported ${what}.`);
+  } catch (e) {
+    console.warn('[jfv] import activations/settings failed', e);
+    showMessage(STORAGE_ERROR_ID, `Prefs imported; activations/settings failed: ${quotaMessage(e) ?? String(e)}`);
+  }
+  void render(await loadPrefs());
+}
+
 async function init(): Promise<void> {
   const store = await loadPrefs();
   void render(store);
@@ -272,6 +373,17 @@ async function init(): Promise<void> {
   const clearAllBtn = document.getElementById(CLEAR_ALL_BTN_ID);
   clearAllBtn?.addEventListener('click', () => {
     void handleClearAll();
+  });
+
+  document.getElementById(EXPORT_BTN_ID)?.addEventListener('click', () => {
+    void handleExport();
+  });
+
+  const importInput = document.getElementById(IMPORT_INPUT_ID) as HTMLInputElement | null;
+  importInput?.addEventListener('change', () => {
+    const file = importInput.files?.[0];
+    importInput.value = ''; // picking the same file again must fire `change` again
+    if (file) void handleImportFile(file);
   });
 }
 

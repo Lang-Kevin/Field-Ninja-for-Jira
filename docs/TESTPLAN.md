@@ -91,7 +91,7 @@ implements the same driver interface and calls `runChecks`.
 | 3 | popup `#activate-button` visible | §6 S-states |
 | 4 | after clicking Activate, toggles appear **without reload** | HR-16 |
 | 5 | Summary and Status containers have **no** toggle button | §1 protected |
-| 6 | clicking a toggle writes `jiraFieldVisibility:v3` with a key not containing `unknown` | §3, issue-type read |
+| 6 | clicking a toggle writes a `jiraFieldVisibility:v4:<host>:FNCM` shard; no flattened `host:PROJ:type` key contains `unknown` | §3, issue-type read |
 | 7 | after the click, that field's `getComputedStyle(el).display === 'none'` | §4 |
 | 8 | reload → field still hidden, count of `[data-jfv-hidden], #jfv-hidden-style` rules stable | persistence |
 | 9 | navigate to `/browse/FNCM-2` (Bug) → the Task's hidden field is **visible** | §1 per-issue-type |
@@ -99,12 +99,12 @@ implements the same driver interface and calls `runChecks`.
 | 11 | `/issues?selectedIssue=FNCM-1` → toggles > 0 | HR-12 |
 | 12 | bare `/issues` → no `[jfv]` console error | HR-9 |
 | 13 | `/browse/FNTM-1` (team-managed, different project) → 0 toggles, and popup `#scope-label` contains `FNTM` | §2 scope, resolver on next-gen |
-| 14 | activate `FNTM`, hide a field there → `jiraFieldVisibility:v3` has 2 distinct scope keys | §3 scope isolation |
+| 14 | activate `FNTM`, hide a field there → `jiraFieldVisibility:v4:` shards yield 2 distinct scope keys | §3 scope isolation |
 | 15 | options page lists both `FNCM` and `FNTM` group headings | §4 options |
-| 16 | options `.jfv-deactivate-btn` on `FNTM` → FNTM toggles gone, but `jiraFieldVisibility:v3` still holds the FNTM entry | §2 disable preserves prefs |
+| 16 | options `.jfv-deactivate-btn` on `FNTM` → FNTM toggles gone, but the FNTM `jiraFieldVisibility:v4:` shard still exists | §2 disable preserves prefs |
 | 17 | settings: `showFieldButtons=false` → 0 toggle buttons but hidden fields stay hidden | §3 |
 | 18 | settings: `shrinkCover=true, coverHeightPx=40` → `#jfv-cover-style` exists and its text contains `40px` (skipped with a printed SKIP if the tenant has no cover image) | shrink-cover |
-| 19 | `chrome.storage.sync` holds no `jiraFieldVisibility:v1` / `:v2` key | HR-3 |
+| 19 | `chrome.storage.sync` holds no `jiraFieldVisibility:v1` / `:v2` / `:v3` key | HR-3 |
 | 20 | non-eligible URL (`https://<host>/wiki` or `/jira/settings`) → 0 toggles, no `[jfv]` error | HR-17 |
 
 ## 6. Known constraints
@@ -160,8 +160,20 @@ steps against the real tenant with `dist/` (Chrome) or `dist-firefox/`
 16. Click deactivate on the `FNTM` group in options — confirm FNTM toggles disappear from the issue page, but the FNTM pref entry remains in storage.
 17. In options/settings, turn off "show field buttons" — confirm 0 toggle icons but previously-hidden fields stay hidden.
 18. Turn on shrink-cover with a height of 40px (requires the cover image from §2) — confirm the cover area is styled to ~40px tall.
-19. Inspect storage — confirm no legacy `jiraFieldVisibility:v1` or `:v2` key exists.
+19. Inspect storage — confirm no legacy `jiraFieldVisibility:v1`, `:v2` or `:v3` key exists.
 20. Open a non-eligible URL such as `/wiki` or `/jira/settings` on the tenant host — confirm 0 toggles and no `[jfv]` console error.
+
+### Storage v4 manual checks (no automated counterpart)
+
+Run once after storage v4 lands, in Chrome (`dist/`) and Firefox (`dist-firefox/`):
+
+21. v3 upgrade: in a separate clone (own `npm ci`), check out the parent of the `feat(prefs): v4 shard key helpers` commit and `npm run build`. Copy that `dist/` into a scratch folder, load it unpacked, activate `FNCM` and hide a field. Then overwrite the scratch folder with the new `dist/` and click Reload (this fires `onInstalled`, reason `update`) → the field is still hidden, and sync holds a `jiraFieldVisibility:v4:<host>:FNCM` item and no `jiraFieldVisibility:v3` key.
+22. Export: options → Export → a `field-ninja-export-YYYY-MM-DD.json` file downloads containing `"format": "field-ninja-for-jira"`; no permission prompt. A cover height outside the allowed range or a fractional one is rounded/clamped in the file, so re-importing it validates.
+23. Import: Reset one `FNCM` row in options and import the file from 22 → the confirm text counts match the file and the row is back. Edit the file to `"version": 2` and import again → the red line reads `Import failed: $.version: …` and storage is unchanged.
+24. Copy to…: options → `FNCM` Task row → Copy to… → tick the `FNCM` Bug target → Copy → "Copied to 1 issue type(s)"; `/browse/FNCM-2` hides the copied field. Reset the Bug row afterwards (check 9 relies on it). Double-clicking Copy to… opens a single panel; Copy with no target ticked shows "Select at least one target."
+25. Sync usage: popup and options both show "Sync storage: X of 100 KB".
+
+Then rerun `npm run e2e` (Chrome + Firefox, one-time login required): checks 6/14/16/19 read v4 since T10.
 
 ## 8. Tenant reset
 

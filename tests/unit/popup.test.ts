@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 
 const activated = { value: false };
+const usage = { value: { bytes: 3174, quota: 102400 } };
 vi.mock('../../src/lib/storage-service', () => ({
   clearPrefs: vi.fn(async () => {}),
+  getSyncUsage: vi.fn(async () => usage.value),
   isActivated: vi.fn(async () => activated.value),
   loadSettings: vi.fn(async () => ({})),
+  quotaMessage: vi.fn((e: unknown) => (e instanceof Error && e.message === 'quota' ? 'Sync storage full (100 KB)' : null)),
   saveSettings: vi.fn(),
   setActivated: vi.fn(async (_h: string, _p: string, v: boolean) => {
     activated.value = v;
@@ -12,6 +15,7 @@ vi.mock('../../src/lib/storage-service', () => ({
   setHiddenFields: vi.fn(),
   toggleField: vi.fn(),
 }));
+import { setActivated, setHiddenFields, toggleField } from '../../src/lib/storage-service';
 
 const chromeMock = { tabs: { query: vi.fn(), sendMessage: vi.fn() } };
 let warn: { mockRestore(): void } | undefined;
@@ -30,7 +34,8 @@ const resp = (over: object = {}) => ({
 const html = `<p id="status-message"></p><div id="scope-bar"><span id="scope-label"></span>
 <button id="activate-button"></button></div><div id="field-list"></div><div id="field-button-row">
 <button id="hide-all-button"></button><button id="show-all-button"></button></div>
-<button id="reset-all-button"></button><div id="settings-block"></div>`;
+<button id="reset-all-button"></button><div id="settings-block"></div>
+<p id="storage-usage"></p><p id="storage-error" class="jfv-hidden"></p>`;
 
 const vis = (id: string) => !document.getElementById(id)!.classList.contains('jfv-hidden');
 const status = () => document.getElementById('status-message')!.textContent;
@@ -47,6 +52,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  usage.value = { bytes: 3174, quota: 102400 };
   vi.useFakeTimers();
   activated.value = false;
   chromeMock.tabs.query.mockReset().mockResolvedValue([{ id: 1, url: URL_OK }]);
@@ -140,5 +146,63 @@ describe('handleActivate polling', () => {
     await vi.advanceTimersByTimeAsync(300);
     expect(calls()).toBe(3); // init + failed poll + final refresh
     expect(document.getElementById('activate-button')!.textContent).toBe('Disable here');
+  });
+});
+
+describe('storage usage + write errors', () => {
+  const error = () => document.getElementById('storage-error')!;
+
+  it('shows sync usage in every state, warning class at >= 80 %', async () => {
+    chromeMock.tabs.query.mockResolvedValue([{ id: 1, url: 'https://example.com/' }]); // S0
+    await load();
+    const el = document.getElementById('storage-usage')!;
+    expect(el.textContent).toBe('Sync storage: 3.1 of 100 KB');
+    expect(el.classList.contains('jfv-warning')).toBe(false);
+
+    usage.value = { bytes: 81920, quota: 102400 };
+    await load();
+    expect(document.getElementById('storage-usage')!.classList.contains('jfv-warning')).toBe(true);
+  });
+
+  it('hide all: quota error lands in #storage-error, a later success clears it', async () => {
+    activated.value = true;
+    warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.mocked(setHiddenFields).mockRejectedValueOnce(new Error('quota'));
+    await load();
+    const hideAll = document.getElementById('hide-all-button') as HTMLButtonElement;
+
+    hideAll.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vis('storage-error')).toBe(true);
+    expect(error().textContent).toBe('Sync storage full (100 KB)');
+
+    hideAll.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vis('storage-error')).toBe(false);
+  });
+
+  it('row toggle: non-quota failure → "Saving failed." and the checkbox is reverted', async () => {
+    activated.value = true;
+    warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.mocked(toggleField).mockRejectedValueOnce(new Error('IO'));
+    await load();
+    const box = document.querySelector<HTMLInputElement>('.jfv-field-row input')!;
+    box.checked = false;
+    box.dispatchEvent(new Event('change'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(error().textContent).toBe('Saving failed.');
+    expect(box.checked).toBe(true);
+  });
+
+  it('activate: failure shows the error and skips the ack poll', async () => {
+    warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.mocked(setActivated).mockRejectedValueOnce(new Error('quota'));
+    await load();
+    const before = chromeMock.tabs.sendMessage.mock.calls.length;
+    (document.getElementById('activate-button') as HTMLButtonElement).click();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(chromeMock.tabs.sendMessage.mock.calls.length).toBe(before);
+    expect(error().textContent).toBe('Sync storage full (100 KB)');
+    expect(document.getElementById('activate-button')!.textContent).toBe('Enable here');
   });
 });

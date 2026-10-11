@@ -2,6 +2,26 @@
 
 Format: gruppiert nach Feature/Milestone, nicht nach Einzel-Commit. Commit-Hashes in Klammern zur Nachvollziehbarkeit.
 
+## [Unreleased]
+
+- refactor(selectors): Jira DOM selectors centralized in `src/lib/jira-selectors.ts`, no behaviour change (b845424).
+- feat(popup): popup waits for activation ACK (`GET_FIELDS.isActive`, 25ms poll, 200ms cap) instead of a fixed 200ms sleep; former empty catches now log `[jfv]` `console.warn` (6164e3d).
+- feat(options): search box filters saved prefs by project (6a3328a).
+- test: unit tests for service worker + toggle overlay; vitest 20 files / 148 tests (861407d).
+- test(firefox): `hasSession()` ignores expired session cookies; Firefox e2e 20/20 (check 18 skipped, tenant has no cover) (3301185).
+- chore: spike script removed (12afdf3); stale `PLAN.md` removed (89984b8).
+
+### Storage v4
+
+- feat(storage): prefs sharded into one `chrome.storage.sync` item per site+project (`jiraFieldVisibility:v4:<host>:<PROJ>` → `{ <issueTypeId>: fieldIds[] }`); the 8 KB item limit now applies per project, not to all prefs together (e9353e7, b68e1f2).
+- feat(storage): one-time `migrateV3ToV4()` in the service worker on install/update/startup, before reinjection (order: migrate → prune → legacy drop on install → reinject; a migration error is logged and the rest continues): fill-missing merge (v4 wins), one `set`, v3 removed only afterwards; idempotent (d639913, a0e30ac).
+- feat(storage): `pruneLocalCaches()` drops label/tab/section caches of scopes with neither prefs nor activation; no-op while v3 exists (d639913, a0e30ac).
+- feat(popup,options): sync usage line ("Sync storage: X of 100 KB", warning at ≥80 %) and inline quota errors via `StorageQuotaError`/`quotaMessage()`; the popup `alert()` is gone (b68e1f2, 9d54767, 3b29421).
+- feat(options): Export / Import. Download via Blob + `<a download>` (no new permission); import validated by the pure `validateExport()` (any violation rejects the whole file), merge with the file winning per issue type; `buildExport` rounds and clamps `coverHeightPx` (as does the popup), export failures show an inline error (d4b2345, 6738e08, 3b29421).
+- feat(options): "Copy to…" per pref row, union-copies hidden fields into other known issue types; one panel per row (double-click guard), Copy disabled while writing, "Select at least one target." / "Could not load copy targets." (6738e08, 55cfff7).
+- test: e2e checks 6/14/16/19 and the options-grouping seed read v4 shards; check 19 also rejects `:v3` (857ca3a).
+- docs(spec): HR-3 rewritten (no v1/v2 migration, exactly one v3→v4 migration), HR-4/HR-5/HR-16 updated, new HR-21 (import is a trust boundary). Reason: per-project shards need one read of v3; under the old HR-3 every user would lose all prefs on update (59158b8).
+
 ## [0.4.0] — 2026-08-13
 
 `manifest.json`/`package.json` auf `0.4.0` angehoben. Minor, weil ein neues Build-Target dazukommt; bestehendes Chrome-Verhalten ist unverändert.

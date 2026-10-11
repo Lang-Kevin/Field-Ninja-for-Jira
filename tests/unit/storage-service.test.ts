@@ -70,7 +70,6 @@ beforeEach(() => {
 
 import {
   loadPrefs,
-  savePrefs,
   getPref,
   toggleField,
   clearPref,
@@ -85,14 +84,19 @@ import {
   onActivationsChanged,
   onPrefsChanged,
   dropLegacyPrefs,
+  getSyncUsage,
+  quotaMessage,
+  StorageQuotaError,
 } from '../../src/lib/storage-service';
 import {
-  PREFS_STORAGE_KEY,
+  PREFS_V4_PREFIX,
+  PREFS_V3_STORAGE_KEY,
   ACTIVATIONS_STORAGE_KEY,
   SETTINGS_STORAGE_KEY,
   LEGACY_PREFS_KEYS,
   makePrefKey,
   makeScopeKey,
+  makeShardKey,
   fieldLabelKey,
 } from '../../src/types/prefs';
 
@@ -113,7 +117,9 @@ describe('toggleField', () => {
     await toggleField(HOST, PROJECT, 'TYPE_A', 'field1', true);
     const result = await toggleField(HOST, PROJECT, 'TYPE_A', 'field1', false);
     const key = makePrefKey(HOST, PROJECT, 'TYPE_A');
-    expect(result[key].hiddenFieldIds).toEqual([]);
+    // v4: an emptied type is dropped, an emptied shard is removed from sync.
+    expect(result[key]).toBeUndefined();
+    expect(mockSync._raw()[makeShardKey(HOST, PROJECT)]).toBeUndefined();
   });
 
   it('does not duplicate fieldId when toggled hidden: true twice in a row', async () => {
@@ -205,7 +211,7 @@ describe('clearPrefs', () => {
     await clearPrefs();
 
     const raw = mockSync._raw();
-    expect(raw[PREFS_STORAGE_KEY]).toBeUndefined();
+    expect(Object.keys(raw).filter((k) => k.startsWith(PREFS_V4_PREFIX))).toEqual([]);
     expect(raw[ACTIVATIONS_STORAGE_KEY]).toBeDefined();
     expect(raw[SETTINGS_STORAGE_KEY]).toBeDefined();
 
@@ -316,21 +322,113 @@ describe('saveSettings', () => {
   });
 });
 
-describe('loadPrefs / savePrefs', () => {
-  it('round-trips a store through savePrefs and loadPrefs', async () => {
-    const key = makePrefKey(HOST, PROJECT, 'TYPE_A');
-    const store = {
-      [key]: { host: HOST, projectKey: PROJECT, issueTypeId: 'TYPE_A', hiddenFieldIds: ['f1', 'f2'] },
-    };
-    await savePrefs(store);
-    const loaded = await loadPrefs();
-    expect(loaded).toEqual(store);
-    expect(mockSync._raw()[PREFS_STORAGE_KEY]).toEqual(store);
+describe('loadPrefs', () => {
+  it('assembles PrefsStore from v4 shards and ignores v3 / foreign keys', async () => {
+    await mockSync.set({
+      [makeShardKey(HOST, PROJECT)]: { story: ['f1', 'f2'], bug: ['f3'] },
+      [makeShardKey('b.atlassian.net', 'DEV')]: { task: ['f4'] },
+      [PREFS_V3_STORAGE_KEY]: { 'x:Y:story': { host: 'x', projectKey: 'Y', issueTypeId: 'story', hiddenFieldIds: ['old'] } },
+      [ACTIVATIONS_STORAGE_KEY]: { [makeScopeKey(HOST, PROJECT)]: true },
+    });
+    expect(await loadPrefs()).toEqual({
+      [makePrefKey(HOST, PROJECT, 'story')]: { host: HOST, projectKey: PROJECT, issueTypeId: 'story', hiddenFieldIds: ['f1', 'f2'] },
+      [makePrefKey(HOST, PROJECT, 'bug')]: { host: HOST, projectKey: PROJECT, issueTypeId: 'bug', hiddenFieldIds: ['f3'] },
+      [makePrefKey('b.atlassian.net', 'DEV', 'task')]: { host: 'b.atlassian.net', projectKey: 'DEV', issueTypeId: 'task', hiddenFieldIds: ['f4'] },
+    });
   });
 
   it('returns {} when nothing has been saved yet', async () => {
-    const loaded = await loadPrefs();
-    expect(loaded).toEqual({});
+    expect(await loadPrefs()).toEqual({});
+  });
+});
+
+describe('v4 shards', () => {
+  it('stores one item per scope, value without host/project duplication', async () => {
+    await toggleField(HOST, PROJECT, 'TYPE_A', 'f1', true);
+    await toggleField(HOST, PROJECT, 'TYPE_B', 'f2', true);
+    await toggleField(HOST, 'OTHER', 'TYPE_A', 'f3', true);
+    const raw = mockSync._raw();
+    expect(raw[makeShardKey(HOST, PROJECT)]).toEqual({ TYPE_A: ['f1'], TYPE_B: ['f2'] });
+    expect(raw[makeShardKey(HOST, 'OTHER')]).toEqual({ TYPE_A: ['f3'] });
+  });
+
+  it('getPref reads exactly one shard, never all of sync', async () => {
+    await toggleField(HOST, PROJECT, 'TYPE_A', 'f1', true);
+    mockSync.get.mockClear();
+    await getPref(HOST, PROJECT, 'TYPE_A');
+    expect(mockSync.get).toHaveBeenCalledTimes(1);
+    expect(mockSync.get).toHaveBeenCalledWith(makeShardKey(HOST, PROJECT));
+  });
+
+  it('handles an issue type named like an Object.prototype member', async () => {
+    expect((await getPref(HOST, PROJECT, 'constructor')).hiddenFieldIds).toEqual([]);
+    await toggleField(HOST, PROJECT, 'constructor', 'f1', true);
+    expect((await getPref(HOST, PROJECT, 'constructor')).hiddenFieldIds).toEqual(['f1']);
+  });
+
+  // RF-4
+  it('concurrent writes on different types of the same shard all land', async () => {
+    await toggleField(HOST, PROJECT, 'TYPE_B', 'f2', true);
+    await Promise.all([
+      toggleField(HOST, PROJECT, 'TYPE_A', 'f1', true),
+      clearPref(HOST, PROJECT, 'TYPE_B'),
+      setHiddenFields(HOST, PROJECT, 'TYPE_C', ['f3']),
+    ]);
+    expect(mockSync._raw()[makeShardKey(HOST, PROJECT)]).toEqual({ TYPE_A: ['f1'], TYPE_C: ['f3'] });
+  });
+});
+
+describe('quota', () => {
+  // RF-2
+  it('per-item overflow throws StorageQuotaError("item") and writes nothing', async () => {
+    await toggleField(HOST, PROJECT, 'story', 'keep', true);
+    mockSync.set.mockClear();
+    const ids = Array.from({ length: 500 }, (_, i) => `customfield_${String(i).padStart(5, '0')}`);
+    const err = await setHiddenFields(HOST, PROJECT, 'bug', ids).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(StorageQuotaError);
+    expect(err).toMatchObject({ kind: 'item', scope: makeScopeKey(HOST, PROJECT), limit: 8192 });
+    expect((err as StorageQuotaError).bytes).toBeGreaterThan(8192);
+    expect(mockSync.set).not.toHaveBeenCalled();
+    expect(mockSync._raw()[makeShardKey(HOST, PROJECT)]).toEqual({ story: ['keep'] });
+  });
+
+  it.each([
+    ['QUOTA_BYTES_PER_ITEM quota exceeded', 'Error', 'item'],
+    ['This request exceeds the MAX_WRITE_OPERATIONS_PER_MINUTE quota.', 'Error', 'rate'],
+    ['This request exceeds the MAX_SUSTAINED_WRITE_OPERATIONS_PER_MINUTE quota.', 'Error', 'rate'],
+    ['QUOTA_BYTES quota exceeded', 'Error', 'total'],
+    ['storage.sync API call exceeded its quota limitations.', 'QuotaExceededError', 'total'],
+  ])('maps browser error "%s" (%s) to kind %s', async (message, name, kind) => {
+    mockSync.set.mockRejectedValueOnce(Object.assign(new Error(message), { name }));
+    await expect(toggleField(HOST, PROJECT, 'story', 'f1', true)).rejects.toMatchObject({ kind });
+  });
+
+  it('maps quota errors on activation writes too', async () => {
+    mockSync.set.mockRejectedValueOnce(new Error('MAX_WRITE_OPERATIONS_PER_HOUR'));
+    await expect(setActivated(HOST, PROJECT, true)).rejects.toBeInstanceOf(StorageQuotaError);
+  });
+
+  it('rethrows non-quota errors unchanged', async () => {
+    const boom = new Error('IO error');
+    mockSync.set.mockRejectedValueOnce(boom);
+    await expect(toggleField(HOST, PROJECT, 'story', 'f1', true)).rejects.toBe(boom);
+  });
+
+  it('quotaMessage renders the user text per kind, null otherwise', () => {
+    expect(quotaMessage(new StorageQuotaError('item', makeScopeKey(HOST, 'PROJ'), 8500, 8192))).toBe(
+      'PROJ on acme.atlassian.net has too many hidden fields (8.3 KB > 8 KB per project)'
+    );
+    expect(quotaMessage(new StorageQuotaError('item'))).toBe('This project has too many hidden fields (8 KB per project)');
+    expect(quotaMessage(new StorageQuotaError('total'))).toBe('Sync storage full (100 KB)');
+    expect(quotaMessage(new StorageQuotaError('rate'))).toBe('Too many changes per minute — try again shortly');
+    expect(quotaMessage(new Error('x'))).toBeNull();
+    expect(quotaMessage('x')).toBeNull();
+  });
+
+  it('getSyncUsage sums utf8(key) + utf8(JSON(value)) over all sync items', async () => {
+    await mockSync.set({ k: 'ü', a: 1 });
+    // 'k' (1) + '"ü"' (4) + 'a' (1) + '1' (1)
+    expect(await getSyncUsage()).toEqual({ bytes: 7, quota: 102400 });
   });
 });
 
@@ -393,10 +491,12 @@ describe('onChanged listeners', () => {
     const unsubscribe = onPrefsChanged(cb);
 
     await setActivated(HOST, PROJECT, true);
+    await saveSettings({ debugOutline: true });
     expect(cb).not.toHaveBeenCalled();
 
     await toggleField(HOST, PROJECT, 'TYPE_A', 'field1', true);
     expect(cb).toHaveBeenCalledTimes(1);
+    expect(cb).toHaveBeenCalledWith();
 
     unsubscribe();
   });
@@ -422,7 +522,7 @@ describe('dropLegacyPrefs', () => {
     const rawSync = mockSync._raw();
     expect(rawSync['jiraFieldVisibility:v1']).toBeUndefined();
     expect(rawSync['jiraFieldVisibility:v2']).toBeUndefined();
-    expect(rawSync[PREFS_STORAGE_KEY]).toBeDefined();
+    expect(rawSync[makeShardKey(HOST, PROJECT)]).toBeDefined();
     expect(rawSync[SETTINGS_STORAGE_KEY]).toBeDefined();
     expect(rawSync[ACTIVATIONS_STORAGE_KEY]).toBeDefined();
 

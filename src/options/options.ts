@@ -7,12 +7,67 @@ import {
   getPref,
   loadActivations,
   setActivated,
+  buildExport,
+  getSyncUsage,
+  listKnownBuckets,
+  mergeActivations,
+  quotaMessage,
+  saveSettings,
+  writeBuckets,
 } from '../lib/storage-service';
+import { validateExport } from '../lib/export-schema';
 import type { Pref, PrefsStore } from '../types/prefs';
-import { makeScopeKey } from '../types/prefs';
+import { makeScopeKey, parseScopeKey } from '../types/prefs';
 
 const PREFS_LIST_ID = 'prefs-list';
 const CLEAR_ALL_BTN_ID = 'clear-all-btn';
+const SEARCH_ID = 'prefs-search';
+const NO_MATCH_ID = 'prefs-no-match';
+const STORAGE_USAGE_ID = 'storage-usage';
+const STORAGE_ERROR_ID = 'storage-error';
+const STORAGE_STATUS_ID = 'storage-status';
+const EXPORT_BTN_ID = 'export-btn';
+const IMPORT_INPUT_ID = 'import-input';
+const MAX_IMPORT_BYTES = 256 * 1024;
+
+/** Sets the text of #storage-error / #storage-status; null hides the element. */
+function showMessage(id: string, text: string | null): void {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = text === null ? '' : text.length > 300 ? `${text.slice(0, 300)}…` : text;
+  el.hidden = text === null;
+}
+
+// ponytail: same 5 lines as popup.ts — two entry points, no shared UI module worth adding.
+async function refreshUsage(): Promise<void> {
+  const el = document.getElementById(STORAGE_USAGE_ID);
+  if (!el) return;
+  try {
+    const { bytes, quota } = await getSyncUsage();
+    el.textContent = `Sync storage: ${(bytes / 1024).toFixed(1)} of ${Math.round(quota / 1024)} KB`;
+    el.classList.toggle('jfv-warning', bytes >= quota * 0.8);
+  } catch (e) {
+    console.warn('[jfv] usage unavailable', e);
+    el.textContent = '';
+    el.classList.remove('jfv-warning');
+  }
+}
+
+/** Hide groups whose data-search text lacks the query (case-insensitive). */
+function applyFilter(): void {
+  const q = (document.getElementById(SEARCH_ID) as HTMLInputElement | null)?.value
+    .trim()
+    .toLowerCase() ?? '';
+  const groups = document.querySelectorAll<HTMLElement>('.jfv-project-group');
+  let shown = 0;
+  groups.forEach((g) => {
+    const hit = !q || (g.dataset.search ?? '').includes(q);
+    g.hidden = !hit;
+    if (hit) shown++;
+  });
+  const none = document.getElementById(NO_MATCH_ID);
+  if (none) none.hidden = !(q && groups.length > 0 && shown === 0);
+}
 
 /** `user-story` -> `User Story` */
 export function titleize(slug: string): string {
@@ -55,11 +110,13 @@ async function render(store: PrefsStore): Promise<void> {
   }
   rendering = true;
   try {
-    await doRender(store);
-    while (pendingStore) {
-      const next = pendingStore;
-      pendingStore = null;
+    // refreshUsage inside the loop: no await gap between draining and `finally`.
+    let next: PrefsStore | null = store;
+    while (next) {
       await doRender(next);
+      await refreshUsage();
+      next = pendingStore;
+      pendingStore = null;
     }
   } finally {
     rendering = false;
@@ -122,6 +179,7 @@ async function doRender(store: PrefsStore): Promise<void> {
 
     const group = document.createElement('div');
     group.className = 'jfv-project-group';
+    const searchText = [host, projectKey];
 
     const heading = document.createElement('h2');
     heading.className = 'jfv-project-heading';
@@ -149,11 +207,13 @@ async function doRender(store: PrefsStore): Promise<void> {
       const empty = document.createElement('p');
       empty.textContent = 'No hidden fields.';
       group.appendChild(empty);
+      group.dataset.search = searchText.join(' ').toLowerCase();
       container.appendChild(group);
       continue;
     }
 
     for (const pref of prefsForScope) {
+      searchText.push(pref.issueTypeId, titleize(pref.issueTypeId));
       const row = document.createElement('div');
       row.className = 'jfv-pref-row';
 
@@ -173,7 +233,21 @@ async function doRender(store: PrefsStore): Promise<void> {
         void handleClearOne(pref.host, pref.projectKey, pref.issueTypeId);
       });
 
+      const copyBtn = document.createElement('button');
+      copyBtn.type = 'button';
+      copyBtn.className = 'jfv-copy-btn';
+      copyBtn.textContent = 'Copy to…';
+      copyBtn.setAttribute('aria-expanded', 'false');
+      copyBtn.setAttribute('aria-label', `Copy to… (${pref.issueTypeId} in ${projectKey})`);
+      copyBtn.addEventListener('click', () => {
+        toggleCopyPanel(pref, row, copyBtn).catch((e) => {
+          console.warn('[jfv] copy panel failed', e);
+          showMessage(STORAGE_ERROR_ID, 'Could not load copy targets.');
+        });
+      });
+
       row.appendChild(label);
+      row.appendChild(copyBtn);
       row.appendChild(resetBtn);
       group.appendChild(row);
 
@@ -186,6 +260,7 @@ async function doRender(store: PrefsStore): Promise<void> {
         const fieldLabel = document.createElement('span');
         fieldLabel.className = 'jfv-field-sub-label';
         fieldLabel.textContent = labels[fieldId] ?? humanizeFieldId(fieldId);
+        searchText.push(fieldLabel.textContent);
 
         const unhideBtn = document.createElement('button');
         unhideBtn.type = 'button';
@@ -205,8 +280,95 @@ async function doRender(store: PrefsStore): Promise<void> {
       }
     }
 
+    group.dataset.search = searchText.join(' ').toLowerCase();
     container.appendChild(group);
   }
+  applyFilter();
+}
+
+/** Spec §7: inline panel; one checkbox per known bucket except the source. */
+async function toggleCopyPanel(src: Pref, row: HTMLElement, btn: HTMLButtonElement): Promise<void> {
+  const open = row.nextElementSibling;
+  if (open?.classList.contains('jfv-copy-panel')) {
+    open.remove();
+    btn.setAttribute('aria-expanded', 'false');
+    return;
+  }
+  const targets = (await listKnownBuckets()).filter(
+    (t) => t.host !== src.host || t.projectKey !== src.projectKey || t.issueTypeId !== src.issueTypeId
+  );
+  if (!row.isConnected || row.nextElementSibling?.classList.contains('jfv-copy-panel')) return;
+
+  const panel = document.createElement('fieldset');
+  panel.className = 'jfv-copy-panel';
+  const legend = document.createElement('legend');
+  legend.textContent = `Copy ${src.hiddenFieldIds.length} hidden field(s) to`;
+  panel.appendChild(legend);
+
+  const boxes = targets.map((t) => {
+    const label = document.createElement('label');
+    label.className = 'jfv-copy-target';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    label.append(cb, ` ${t.host} — ${t.projectKey} — ${titleize(t.issueTypeId)}`);
+    panel.appendChild(label);
+    return { t, cb };
+  });
+  if (boxes.length === 0) panel.append('No other known issue types yet.');
+
+  const actions = document.createElement('div');
+  actions.className = 'jfv-copy-actions';
+  const confirmBtn = document.createElement('button');
+  confirmBtn.type = 'button';
+  confirmBtn.className = 'jfv-copy-confirm';
+  confirmBtn.textContent = 'Copy';
+  confirmBtn.addEventListener('click', () => {
+    confirmBtn.disabled = true;
+    copyTo(src, boxes.filter((b) => b.cb.checked).map((b) => b.t))
+      .then((ok) => {
+        if (!ok) confirmBtn.disabled = false;
+      })
+      .catch((e) => {
+        console.warn('[jfv] copy failed', e);
+        confirmBtn.disabled = false;
+      });
+  });
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.className = 'jfv-copy-cancel';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', () => {
+    panel.remove();
+    btn.setAttribute('aria-expanded', 'false');
+    btn.focus();
+  });
+  actions.append(confirmBtn, cancelBtn);
+  panel.appendChild(actions);
+  row.after(panel);
+  btn.setAttribute('aria-expanded', 'true');
+}
+
+/** Union, never replace (spec §7): non-destructive, idempotent, so no confirm. */
+async function copyTo(
+  src: Pref,
+  targets: { host: string; projectKey: string; issueTypeId: string }[]
+): Promise<boolean> {
+  showMessage(STORAGE_ERROR_ID, null);
+  if (targets.length === 0) {
+    showMessage(STORAGE_ERROR_ID, 'Select at least one target.');
+    return false;
+  }
+  showMessage(STORAGE_STATUS_ID, null);
+  try {
+    await writeBuckets(targets.map((t) => ({ ...t, hiddenFieldIds: src.hiddenFieldIds })), 'union');
+  } catch (e) {
+    console.warn('[jfv] copy failed', e);
+    showMessage(STORAGE_ERROR_ID, quotaMessage(e) ?? 'Copy failed.');
+    return false;
+  }
+  showMessage(STORAGE_STATUS_ID, `Copied to ${targets.length} issue type(s)`);
+  void loadPrefs().then(render).catch((e) => console.warn('[jfv] reload after copy failed', e));
+  return true;
 }
 
 async function handleClearOne(
@@ -239,13 +401,95 @@ async function handleDeactivate(host: string, projectKey: string): Promise<void>
   void render(await loadPrefs());
 }
 
+// HR-17: Blob + <a download>, no downloads permission.
+async function handleExport(): Promise<void> {
+  try {
+    const url = URL.createObjectURL(
+      new Blob([JSON.stringify(await buildExport(), null, 2)], { type: 'application/json' })
+    );
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `field-ninja-export-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a); // Firefox needs the anchor in the document
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (e) {
+    console.warn('[jfv] export failed', e);
+    showMessage(STORAGE_ERROR_ID, quotaMessage(e) ?? 'Export failed.');
+  }
+}
+
+/**
+ * HR-21 trust boundary: size check before reading, full validateExport,
+ * confirm, then all-or-nothing prefs write (quota precheck inside
+ * writeBuckets); activations/settings only after prefs landed.
+ */
+export async function handleImportFile(file: File): Promise<void> {
+  showMessage(STORAGE_ERROR_ID, null);
+  showMessage(STORAGE_STATUS_ID, null);
+  if (file.size > MAX_IMPORT_BYTES) {
+    showMessage(STORAGE_ERROR_ID, `Import file too large (${Math.ceil(file.size / 1024)} KB > 256 KB).`);
+    return;
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(await file.text());
+  } catch {
+    showMessage(STORAGE_ERROR_ID, 'Import failed: not a valid JSON file.');
+    return;
+  }
+  const result = validateExport(raw);
+  if (!result.ok) {
+    showMessage(STORAGE_ERROR_ID, `Import failed: ${result.error}`);
+    return;
+  }
+  const { data, summary: s } = result;
+  const what = `${s.projects} projects, ${s.buckets} issue types, ${s.fields} hidden fields, ${s.activations} activations${s.hasSettings ? ', settings' : ''}`;
+  if (!confirm(`Import ${what}? Matching issue types are overwritten, others kept.`)) return;
+
+  const buckets: Pref[] = Object.entries(data.prefs).flatMap(([scope, shard]) => {
+    const { host, projectKey } = parseScopeKey(scope)!; // validateExport guarantees "<host>:<PROJ>"
+    return Object.entries(shard).map(([issueTypeId, hiddenFieldIds]) => ({ host, projectKey, issueTypeId, hiddenFieldIds }));
+  });
+  try {
+    await writeBuckets(buckets, 'replace');
+  } catch (e) {
+    console.warn('[jfv] import failed', e);
+    showMessage(STORAGE_ERROR_ID, quotaMessage(e) ?? 'Import failed.');
+    return;
+  }
+  try {
+    await mergeActivations(data.activations);
+    if (data.settings) await saveSettings(data.settings);
+    showMessage(STORAGE_STATUS_ID, `Imported ${what}.`);
+  } catch (e) {
+    console.warn('[jfv] import activations/settings failed', e);
+    showMessage(STORAGE_ERROR_ID, `Prefs imported; activations/settings failed: ${quotaMessage(e) ?? String(e)}`);
+  }
+  void loadPrefs().then(render).catch((e) => console.warn('[jfv] reload after import failed', e));
+}
+
 async function init(): Promise<void> {
   const store = await loadPrefs();
   void render(store);
 
+  document.getElementById(SEARCH_ID)?.addEventListener('input', applyFilter);
+
   const clearAllBtn = document.getElementById(CLEAR_ALL_BTN_ID);
   clearAllBtn?.addEventListener('click', () => {
     void handleClearAll();
+  });
+
+  document.getElementById(EXPORT_BTN_ID)?.addEventListener('click', () => {
+    void handleExport();
+  });
+
+  const importInput = document.getElementById(IMPORT_INPUT_ID) as HTMLInputElement | null;
+  importInput?.addEventListener('change', () => {
+    const file = importInput.files?.[0];
+    importInput.value = ''; // picking the same file again must fire `change` again
+    if (file) void handleImportFile(file);
   });
 }
 

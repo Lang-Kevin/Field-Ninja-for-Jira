@@ -1,7 +1,9 @@
 import {
   clearPrefs,
+  getSyncUsage,
   isActivated,
   loadSettings,
+  quotaMessage,
   saveSettings,
   setActivated,
   setHiddenFields,
@@ -24,6 +26,8 @@ const RESET_ALL_BUTTON_ID = 'reset-all-button';
 const SETTINGS_BLOCK_ID = 'settings-block';
 const HIDE_ALL_BUTTON_ID = 'hide-all-button';
 const SHOW_ALL_BUTTON_ID = 'show-all-button';
+const STORAGE_USAGE_ID = 'storage-usage';
+const STORAGE_ERROR_ID = 'storage-error';
 
 type PopupState = 'S0' | 'S1' | 'S2' | 'S3' | 'S4' | 'S5';
 
@@ -32,6 +36,29 @@ let coverHeightDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 
 function setHidden(el: Element | null, hidden: boolean): void {
   el?.classList.toggle('jfv-hidden', hidden);
+}
+
+async function refreshUsage(): Promise<void> {
+  const el = document.getElementById(STORAGE_USAGE_ID);
+  if (!el) return;
+  const { bytes, quota } = await getSyncUsage();
+  el.textContent = `Sync storage: ${(bytes / 1024).toFixed(1)} of ${Math.round(quota / 1024)} KB`;
+  el.classList.toggle('jfv-warning', bytes >= quota * 0.8);
+}
+
+/** Runs one storage write; on failure shows quota text (or a generic one) in #storage-error. */
+async function guardedWrite(fn: () => Promise<unknown>): Promise<boolean> {
+  const box = document.getElementById(STORAGE_ERROR_ID);
+  setHidden(box, true);
+  try {
+    await fn();
+    return true;
+  } catch (e) {
+    console.warn('[jfv] storage write failed', e);
+    if (box) box.textContent = quotaMessage(e) ?? 'Saving failed.';
+    setHidden(box, false);
+    return false;
+  }
 }
 
 function renderFields(response: GetFieldsResponse): void {
@@ -66,7 +93,11 @@ function renderFields(response: GetFieldsResponse): void {
     checkbox.type = 'checkbox';
     checkbox.checked = !field.hidden;
     checkbox.addEventListener('change', () => {
-      void toggleField(host, projectKey, issueTypeId, field.id, !checkbox.checked);
+      void (async () => {
+        const ok = await guardedWrite(() => toggleField(host, projectKey, issueTypeId, field.id, !checkbox.checked));
+        if (!ok) checkbox.checked = !checkbox.checked;
+        await refreshUsage();
+      })();
     });
 
     const labelText = document.createElement('span');
@@ -81,10 +112,22 @@ function renderFields(response: GetFieldsResponse): void {
 
 async function handleActivate(response: GetFieldsResponse, activate: boolean): Promise<void> {
   if (response.projectKey === null) return;
-  await setActivated(response.host, response.projectKey, activate);
+  if (!(await guardedWrite(() => setActivated(response.host, response.projectKey as string, activate)))) return;
   if (activate) {
-    // ponytail: kein ACK-Message — 200ms decken den In-Process-storage.onChanged-Roundtrip. ACK nachrüsten, falls es je flackert.
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    // ACK = content script's isActive flag flipped (render may still be in flight); poll GET_FIELDS, 200ms total as timeout fallback.
+    const deadline = Date.now() + 200;
+    let tabId: number | undefined;
+    while (Date.now() < deadline) {
+      try {
+        tabId ??= (await chrome.tabs.query({ active: true, currentWindow: true }))[0].id!;
+        const r: GetFieldsResponse = await chrome.tabs.sendMessage(tabId, { type: 'GET_FIELDS' });
+        if (r.isActive) break;
+      } catch (e) {
+        console.warn('[jfv] activate ack failed', e);
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
   }
   await refresh();
 }
@@ -151,6 +194,7 @@ function renderState(state: PopupState, response?: GetFieldsResponse): void {
 }
 
 async function refresh(): Promise<void> {
+  await refreshUsage();
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!isEligibleUrl(tab?.url)) {
     latestResponse = undefined;
@@ -166,7 +210,8 @@ async function refresh(): Promise<void> {
   let response: GetFieldsResponse;
   try {
     response = await chrome.tabs.sendMessage(tab.id, { type: 'GET_FIELDS' });
-  } catch {
+  } catch (e) {
+    console.warn('[jfv] GET_FIELDS failed', e);
     // No content script on this tab (e.g. older tab than the extension install).
     latestResponse = undefined;
     renderState('S1');
@@ -234,7 +279,7 @@ async function init(): Promise<void> {
       // turn a paused "5" into "20" and the next keystroke into "200".
       const commit = (writeBack: boolean): void => {
         const value = Number(coverHeightInput.value);
-        const clamped = Math.min(600, Math.max(20, Number.isNaN(value) ? 20 : value));
+        const clamped = Math.round(Math.min(600, Math.max(20, Number.isNaN(value) ? 20 : value)));
         if (writeBack) coverHeightInput.value = String(clamped);
         void saveSettings({ coverHeightPx: clamped });
       };
@@ -258,7 +303,7 @@ async function init(): Promise<void> {
     if (!confirm('Reset hidden fields for every issue type?')) {
       return;
     }
-    void clearPrefs().then(refresh);
+    void guardedWrite(clearPrefs).then(refresh);
   });
 
   const hideAllButton = document.getElementById(HIDE_ALL_BUTTON_ID) as HTMLButtonElement | null;
@@ -268,16 +313,7 @@ async function init(): Promise<void> {
         return;
       }
       const { issueTypeId, projectKey, host, fields } = latestResponse;
-      try {
-        await setHiddenFields(
-          host,
-          projectKey,
-          issueTypeId,
-          fields.map((f) => f.id)
-        );
-      } catch {
-        alert('Too many fields for the sync storage quota.');
-      }
+      await guardedWrite(() => setHiddenFields(host, projectKey, issueTypeId, fields.map((f) => f.id)));
       await refresh();
     })();
   });
@@ -289,7 +325,7 @@ async function init(): Promise<void> {
         return;
       }
       const { issueTypeId, projectKey, host } = latestResponse;
-      await setHiddenFields(host, projectKey, issueTypeId, []);
+      await guardedWrite(() => setHiddenFields(host, projectKey, issueTypeId, []));
       await refresh();
     })();
   });

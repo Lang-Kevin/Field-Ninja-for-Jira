@@ -4,8 +4,6 @@ import { launchExtension, type ExtensionTestContext } from './setup';
 
 const TEST_TIMEOUT = 30000;
 
-const PREFS_STORAGE_KEY = 'jiraFieldVisibility:v3';
-
 describe('options page groups prefs by site and project', () => {
   let ctx: ExtensionTestContext;
   let page: Page;
@@ -18,26 +16,11 @@ describe('options page groups prefs by site and project', () => {
 
     // Seed two scopes across two different hosts/projects directly in
     // storage, then reload so options.ts's init() re-renders from scratch.
-    await page.evaluate(
-      (key) => {
-        return chrome.storage.sync.set({
-          [key]: {
-            'acme.atlassian.net:CSM:story': {
-              host: 'acme.atlassian.net',
-              projectKey: 'CSM',
-              issueTypeId: 'story',
-              hiddenFieldIds: ['field1'],
-            },
-            'other.atlassian.net:DEV:bug': {
-              host: 'other.atlassian.net',
-              projectKey: 'DEV',
-              issueTypeId: 'bug',
-              hiddenFieldIds: ['field2'],
-            },
-          },
-        });
-      },
-      PREFS_STORAGE_KEY
+    await page.evaluate(() =>
+      chrome.storage.sync.set({
+        'jiraFieldVisibility:v4:acme.atlassian.net:CSM': { story: ['field1'] },
+        'jiraFieldVisibility:v4:other.atlassian.net:DEV': { bug: ['field2'] },
+      })
     );
 
     await page.reload({ waitUntil: 'networkidle0' });

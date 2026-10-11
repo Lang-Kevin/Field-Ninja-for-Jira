@@ -5,10 +5,11 @@
 // project keys are detected on Next-Gen / JSM projects.
 //
 // Usage:
-//   node scripts/pw-real.mjs <host> [PROJ_A] [PROJ_B]
-//   node scripts/pw-real.mjs your-tenant.atlassian.net
-//   node scripts/pw-real.mjs your-tenant.atlassian.net --headed
-//   node scripts/pw-real.mjs your-tenant.atlassian.net --keep
+//   node scripts/pw-real.mjs [host] [--headed] [--keep]
+//
+// The projects, issue keys and custom fields come from tests/tenant.json
+// (written by scripts/jira-seed.mjs); the assertions live in e2e-checks.mjs and
+// are shared verbatim with the Firefox runner.
 //
 // Runs headless by default, so it never opens a window on your desktop. Only if
 // the profile holds no Jira session does it open one for a one-time login; the
@@ -17,6 +18,8 @@
 //
 // Requires a fresh build:  npm run build
 import { chromium } from 'playwright-core';
+import { runChecks } from './e2e-checks.mjs';
+import { loginIfNeeded } from './e2e-login.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -32,20 +35,12 @@ const CHROME =
   process.env.JFV_CHROME ||
   path.join(os.homedir(), '.cache/puppeteer/chrome/win64-150.0.7871.24/chrome-win64/chrome.exe');
 
+const tenant = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests/tenant.json'), 'utf8'));
+
 const argv = process.argv.slice(2);
 const KEEP = argv.includes('--keep');
-const [host, ...projectArgs] = argv.filter((a) => !a.startsWith('--'));
-if (!host) {
-  console.error('usage: node scripts/pw-real.mjs <host.atlassian.net> [PROJ_A] [PROJ_B] [--keep]');
-  process.exit(1);
-}
+const host = argv.filter((a) => !a.startsWith('--'))[0] ?? tenant.host;
 const ORIGIN = `https://${host}`;
-
-const results = [];
-const check = (name, ok, detail = '') => {
-  results.push({ name, ok });
-  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? `  — ${detail}` : ''}`);
-};
 
 // Real Jira is served over https://*.atlassian.net, which the shipped manifest
 // already matches — no widened copy of dist/ needed here, unlike pw-verify.mjs.
@@ -80,24 +75,43 @@ let ctx = await launch(!argv.includes('--headed'));
   await p.goto(`${ORIGIN}/jira/your-work`, { waitUntil: 'domcontentloaded' });
   await p.waitForTimeout(3000);
   if (!(await hasSession(ctx))) {
-    console.log(`\n>>> Kein Login im Profil. Öffne ein Fenster für ${host} — bitte dort anmelden (max 10 min).\n`);
+    console.log(`\n>>> Kein Login im Profil. Öffne ein Fenster für ${host} und versuche Auto-Login via auth.json.\n>>> Falls das scheitert (MFA/Captcha): bitte im Fenster manuell anmelden (max 10 min).\n`);
     await ctx.close();
     ctx = await launch(false);
     const lp = ctx.pages()[0] ?? (await ctx.newPage());
     await lp.goto(`${ORIGIN}/jira/your-work`, { waitUntil: 'domcontentloaded' });
-    const deadline = Date.now() + 600000;
-    while (!(await hasSession(ctx))) {
-      if (Date.now() > deadline) {
-        await ctx.close();
-        throw new Error('login timeout');
+
+    const autoLoggedIn = await loginIfNeeded({
+      page: lp,
+      hasSession: () => hasSession(ctx),
+      sleep: (ms) => lp.waitForTimeout(ms),
+      type: (sel, text) => lp.fill(sel, text),
+      click: (sel) => lp.click(sel),
+      waitFor: (sel, timeoutMs) =>
+        lp
+          .waitForSelector(sel, { timeout: timeoutMs })
+          .then(() => true)
+          .catch(() => false),
+    });
+
+    if (!autoLoggedIn) {
+      // ponytail: Beleg, woran der Auto-Login hing (Account-Chooser? MFA? Captcha?).
+      await lp.screenshot({ path: path.join(ROOT, 'login-debug.png') }).catch(() => {});
+      console.log('>>> Auto-Login griff nicht — Screenshot: login-debug.png\n');
+      const deadline = Date.now() + 600000;
+      while (!(await hasSession(ctx))) {
+        if (Date.now() > deadline) {
+          await ctx.close();
+          throw new Error(
+            'login timeout — auto-login fehlgeschlagen (fehlende/falsche auth.json, MFA oder Captcha?). Mit --headed laufen lassen und manuell anmelden.'
+          );
+        }
+        await lp.waitForTimeout(3000);
       }
-      await lp.waitForTimeout(3000);
     }
     console.log('>>> Angemeldet. Nächster Lauf startet headless.\n');
   }
 }
-
-const toggles = (p) => p.locator('.jfv-field-toggle').count();
 
 /** Reload the popup while it sits in the background so tabs.query sees the Jira tab. */
 async function readPopup(popup, popupUrl, jiraPage) {
@@ -108,137 +122,49 @@ async function readPopup(popup, popupUrl, jiraPage) {
   return popup;
 }
 
+
 try {
   const sw = ctx.serviceWorkers()[0] ?? (await ctx.waitForEvent('serviceworker', { timeout: 20000 }));
   const extId = new URL(sw.url()).host;
   const popupUrl = `chrome-extension://${extId}/popup.html`;
   console.log(`extension id: ${extId}`);
+  console.log(`tenant: ${ORIGIN}\n`);
 
-  // The profile is persistent, so chrome.storage.sync survives between runs — a
-  // project activated by an EARLIER run would fail the "second project NOT
-  // auto-activated" check for the wrong reason. Start every run from scratch.
-  const reset = await ctx.newPage();
-  await reset.goto(popupUrl);
-  await reset.evaluate(() => chrome.storage.sync.clear());
-  await reset.close();
+  const errorLog = new WeakMap();
+  const driver = {
+    extUrl: (f) => `chrome-extension://${extId}/${f}`,
+    async newPage() {
+      const p = await ctx.newPage();
+      const errs = [];
+      p.on('console', (m) => m.type() === 'error' && errs.push(m.text()));
+      errorLog.set(p, errs);
+      return p;
+    },
+    goto: (p, url) => p.goto(url, { waitUntil: 'domcontentloaded' }),
+    wait: (p, ms) => p.waitForTimeout(ms),
+    count: (p, sel) => p.locator(sel).count(),
+    // ponytail: Toggle-Buttons überlappen sich im echten Jira-Layout, ein
+    // Koordinaten-Klick trifft dann den Nachbarn. Direkt aufs Element klicken.
+    click: (p, sel) => p.locator(sel).first().dispatchEvent('click'),
+    text: (p, sel) => p.locator(sel).first().innerText().catch(() => '').then((t) => t.trim()),
+    visible: (p, sel) => p.locator(sel).first().isVisible().catch(() => false),
+    evalPage: (p, fn) => p.evaluate(fn),
+    consoleErrors: (p) => errorLog.get(p) ?? [],
+    close: (p) => p.close().catch(() => {}),
+    refreshPopup: (popup, jiraPage) => readPopup(popup, popupUrl, jiraPage),
+    async evalInExt(fn) {
+      const x = await ctx.newPage();
+      await x.goto(popupUrl);
+      const out = await x.evaluate(fn);
+      await x.close();
+      return out;
+    },
+  };
 
-  const page = ctx.pages()[0] ?? (await ctx.newPage());
+  const { passed, results, failed } = await runChecks(driver, tenant);
+  console.log(`\nchrome: ${passed}/${results.length} passed`);
+  process.exitCode = failed.length ? 1 : 0;
 
-  // --- project discovery -------------------------------------------------------
-  let projects = projectArgs;
-  if (projects.length === 0) {
-    await page.goto(`${ORIGIN}/jira/projects`, { waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(4000);
-    // ponytail: scrape keys out of the raw markup instead of guessing at Jira's
-    // ever-changing project-list testids.
-    const html = await page.content();
-    projects = [...new Set([...html.matchAll(/\/projects\/([A-Z][A-Z0-9]{1,9})\b/g)].map((m) => m[1]))].slice(0, 2);
-  }
-  console.log(`projects: ${projects.join(', ') || '(none found)'}\n`);
-  if (projects.length === 0) {
-    console.error('Keine Projekte gefunden — Projektschlüssel als Argument übergeben.');
-    throw new Error('no projects');
-  }
-
-  /** First real issue key of a project, via the issue navigator. */
-  async function firstIssueKey(proj) {
-    await page.goto(`${ORIGIN}/issues?jql=${encodeURIComponent(`project=${proj} ORDER BY created ASC`)}`, {
-      waitUntil: 'domcontentloaded',
-    });
-    await page.waitForTimeout(5000);
-    const m = (await page.content()).match(new RegExp(`\\b${proj}-\\d+\\b`));
-    return m ? m[0] : null;
-  }
-
-  const [projA, projB] = projects;
-  const keyA = await firstIssueKey(projA);
-  if (!keyA) throw new Error(`no issue found in ${projA}`);
-  console.log(`sample issue: ${keyA}\n`);
-
-  const popup = await ctx.newPage();
-
-  // --- before activation --------------------------------------------------------
-  const issue = await ctx.newPage();
-  const errors = [];
-  issue.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
-  await issue.goto(`${ORIGIN}/browse/${keyA}`, { waitUntil: 'domcontentloaded' });
-  await issue.waitForTimeout(6000);
-  check('real issue, not activated -> no toggles', (await toggles(issue)) === 0);
-
-  await readPopup(popup, popupUrl, issue);
-  const scope = (await popup.locator('#scope-label').innerText().catch(() => '')).trim();
-  const status = (await popup.locator('#status-message').innerText().catch(() => '')).trim();
-  // The core real-tenant question: does the resolver name the project on a live
-  // page? Fixtures can't answer this for Next-Gen/JSM layouts.
-  check(`project key detected (${projA})`, scope.includes(projA), scope || status);
-
-  const activate = popup.locator('#activate-button');
-  const canActivate = (await activate.isVisible().catch(() => false));
-  check('popup offers activation on real Jira', canActivate, status);
-
-  if (canActivate) {
-    await activate.click();
-    await issue.bringToFront();
-    await issue.waitForTimeout(6000);
-    const n = await toggles(issue);
-    check('activation applies without reload', n > 0, `${n} toggles`);
-
-    // Writing a pref is the only externally visible proof that the DOM issue-type
-    // read succeeded: isKnownIssueType() blocks the write when it returns 'unknown'.
-    if (n > 0) {
-      await issue.locator('.jfv-field-toggle').first().click();
-      await issue.waitForTimeout(2000);
-      const store = await popup.evaluate(async () => {
-        const r = await chrome.storage.sync.get('jiraFieldVisibility:v3');
-        return Object.keys(r['jiraFieldVisibility:v3'] ?? {});
-      });
-      check(
-        'real issue type resolved (not "unknown")',
-        store.length > 0 && !store.some((k) => k.includes('unknown')),
-        store.join(', ') || 'nothing written'
-      );
-    }
-  }
-
-  // --- issue navigator ----------------------------------------------------------
-  const nav = await ctx.newPage();
-  const navErrors = [];
-  nav.on('console', (m) => m.type() === 'error' && navErrors.push(m.text()));
-  await nav.goto(`${ORIGIN}/issues?selectedIssue=${keyA}`, { waitUntil: 'domcontentloaded' });
-  await nav.waitForTimeout(8000);
-  const navN = await toggles(nav);
-  check('/issues?selectedIssue= -> toggles', navN > 0, `${navN} toggles`);
-
-  await nav.goto(`${ORIGIN}/issues`, { waitUntil: 'domcontentloaded' });
-  await nav.waitForTimeout(6000);
-  const jfvErrors = navErrors.filter((e) => e.includes('[jfv]'));
-  check('bare /issues -> no [jfv] error', jfvErrors.length === 0, jfvErrors.join(' | '));
-
-  // --- second project is a separate scope ----------------------------------------
-  if (projB) {
-    const keyB = await firstIssueKey(projB);
-    if (keyB) {
-      const other = await ctx.newPage();
-      await other.goto(`${ORIGIN}/browse/${keyB}`, { waitUntil: 'domcontentloaded' });
-      await other.waitForTimeout(6000);
-      check(`second project (${projB}) NOT auto-activated`, (await toggles(other)) === 0);
-
-      await readPopup(popup, popupUrl, other);
-      const scopeB = (await popup.locator('#scope-label').innerText().catch(() => '')).trim();
-      check(`project key detected (${projB})`, scopeB.includes(projB), scopeB);
-    } else {
-      console.log(`SKIP  second project — no issue found in ${projB}`);
-    }
-  }
-
-  // --- options page ---------------------------------------------------------------
-  const opts = await ctx.newPage();
-  await opts.goto(`chrome-extension://${extId}/options.html`);
-  await opts.waitForTimeout(1500);
-  const optsText = (await opts.locator('body').innerText()).replace(/\s+/g, ' ');
-  check('options page lists the activated scope', optsText.includes(projA), optsText.slice(0, 120));
-
-  console.log(`\n${results.filter((r) => r.ok).length}/${results.length} passed`);
   if (KEEP) {
     console.log('--keep: Browser bleibt offen, Ctrl+C zum Beenden');
     await new Promise(() => {});

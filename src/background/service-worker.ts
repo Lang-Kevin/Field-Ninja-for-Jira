@@ -5,7 +5,7 @@
  */
 
 import { isEligibleUrl } from '../lib/jira-context-resolver';
-import { dropLegacyPrefs } from '../lib/storage-service';
+import { dropLegacyPrefs, migrateV3ToV4, pruneLocalCaches } from '../lib/storage-service';
 
 // ponytail: colour icon is just the manifest's default_icon path.
 function colourIcon(): { path: Record<number, string> } {
@@ -68,14 +68,32 @@ async function reinjectContentScript(): Promise<void> {
   }
 }
 
+// HR-3: storage v4 migration + cache prune run BEFORE any (re)injection, so
+// fresh content scripts read v4. A failing step is logged, never blocks injection.
+async function runStorageMaintenance(): Promise<void> {
+  try {
+    await migrateV3ToV4();
+  } catch (e) {
+    console.error('[jfv] storage v4 migration failed', e);
+  }
+  await pruneLocalCaches(); // best effort, never throws
+}
+
+// Any install reason: a fresh install can still see a v3 item synced from another device.
 chrome.runtime.onInstalled.addListener(async () => {
   console.log('[jfv:background] installed');
+  await runStorageMaintenance();
+  try {
+    await dropLegacyPrefs();
+  } catch (e) {
+    console.error('[jfv] dropLegacyPrefs failed', e);
+  }
   await reinjectContentScript();
-  await dropLegacyPrefs();
 });
 
-chrome.runtime.onStartup.addListener(() => {
-  void reinjectContentScript();
+chrome.runtime.onStartup.addListener(async () => {
+  await runStorageMaintenance();
+  await reinjectContentScript();
 });
 
 // ponytail: on tab activation, inject if missing (handles session-restore scenario)

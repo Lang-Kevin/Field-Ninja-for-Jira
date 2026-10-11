@@ -93,7 +93,7 @@ function teardownPageEffects(): void {
       node.removeAttribute('data-jfv-hidden');
     }
     for (const cleanup of fieldToggleMap.values()) {
-      try { cleanup(); } catch {}
+      try { cleanup(); } catch (e) { console.warn("[jfv] toggle cleanup failed", e); }
     }
     fieldToggleMap.clear();
   });
@@ -132,8 +132,8 @@ let sectionFieldMap: Record<string, string[]> = {};
  * fieldId → human label, persisted to chrome.storage.local per issue type. A
  * field hidden inside a collapsed section / inactive tab is lazy-removed from
  * the DOM by Jira on reload, so listAll() can't re-derive its label — this
- * cache lets the popup still name (and thus unhide) it. ponytail: unbounded;
- * prune per-issue-type only if storage.local quota ever bites.
+ * cache lets the popup still name (and thus unhide) it. The SW's
+ * pruneLocalCaches() drops it once its host:project has neither prefs nor an activation.
  */
 let labelById: Record<string, string> = {};
 
@@ -431,7 +431,7 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
       if (!showFieldButtons) {
         // showFieldButtons off — remove all toggle buttons.
         for (const cleanup of fieldToggleMap.values()) {
-          try { cleanup(); } catch {}
+          try { cleanup(); } catch (e) { console.warn("[jfv] toggle cleanup failed", e); }
         }
         fieldToggleMap.clear();
       } else if (!skipToggleRemount) {
@@ -439,7 +439,7 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
         // Remounting with fresh `hiddenSet` + `issueTypeId` keeps button state
         // and captured issueTypeId correct.
         for (const cleanup of fieldToggleMap.values()) {
-          try { cleanup(); } catch {}
+          try { cleanup(); } catch (e) { console.warn("[jfv] toggle cleanup failed", e); }
         }
         fieldToggleMap.clear();
         for (const field of fields) {
@@ -458,7 +458,7 @@ async function render(fields: FieldMeta[], skipToggleRemount = false): Promise<v
         // Clean up buttons whose containers left the page.
         for (const [container, cleanup] of [...fieldToggleMap]) {
           if (!liveContainers.has(container)) {
-            try { cleanup(); } catch {}
+            try { cleanup(); } catch (e) { console.warn("[jfv] toggle cleanup failed", e); }
             fieldToggleMap.delete(container);
           }
         }
@@ -571,7 +571,7 @@ function init(): void {
 
   // Mandatory sibling to onPrefsChanged: activation writes land on a
   // different storage key (ACTIVATIONS_STORAGE_KEY), so onPrefsChanged's
-  // PREFS_STORAGE_KEY-scoped listener never fires for them. Without this,
+  // v4-shard-scoped listener never fires for them. Without this,
   // "Enable here"/"Disable here" from the popup would need a reload
   // to take effect on an already-open tab.
   onActivationsChanged((a) => {
@@ -685,6 +685,7 @@ function init(): void {
           issueTypeId: currentIssueTypeId,
           projectKey: currentProjectKey,
           host: currentHost,
+          isActive,
           fields,
         });
       }

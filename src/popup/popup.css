@@ -144,3 +144,18 @@ h1 {
 .jfv-hidden {
   display: none;
 }
+
+.jfv-storage-usage {
+  color: #6b778c;
+  font-size: 11px;
+  margin: 8px 2px 0;
+}
+
+.jfv-storage-error,
+.jfv-storage-usage.jfv-warning {
+  color: #de350b;
+}
+
+.jfv-storage-error {
+  margin: 8px 2px 0;
+}

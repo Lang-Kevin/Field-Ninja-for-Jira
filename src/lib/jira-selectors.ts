@@ -23,7 +23,11 @@ export const JIRA_SELECTORS = {
   // Heading of an empty field. Only one real sample seen.
   fieldHeading: '[data-component-selector*="field-heading"]', // unconfirmed
   // Third-party sidebar app panels.
-  panel: '[data-testid*="panel"], [data-testid*="-panel"]', // unconfirmed
+  panel:
+    '[data-testid*="panel"], [data-testid*="-panel"], [data-testid^="issue-view-layout-templates-views.ui.context.visible-hidden.ui.ecosystem-context-group.container."]', // unconfirmed
+  // Outer container of a Forge/Connect app section (header + body).
+  ecosystemPanel:
+    '[data-testid^="issue-view-layout-templates-views.ui.context.visible-hidden.ui.ecosystem-context-group.container."]',
   // Global app-shell nav rail (page chrome).
   globalNavExclude: '[aria-label="Sidebar"]',
   // "Child work items" panel chrome.

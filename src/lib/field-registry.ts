@@ -583,7 +583,8 @@ export function listSections(root?: ParentNode): HTMLElement[] {
   const scope = root ?? document;
   try {
     return Array.from(scope.querySelectorAll(SECTION_SELECTOR)).filter(
-      (el): el is HTMLElement => el instanceof HTMLElement
+      (el): el is HTMLElement =>
+        el instanceof HTMLElement && !el.matches(JIRA_SELECTORS.ecosystemPanel)
     );
   } catch {
     return [];
@@ -625,15 +626,26 @@ export function listPanels(root?: ParentNode): FieldMeta[] {
       // match PANEL_SELECTOR via "panel" but are layout chrome around a whole
       // group of fields, not a single third-party app panel — see
       // SORTABLE_CHROME_EXCLUDE_SELECTOR's doc comment.
-      if (el.matches(SORTABLE_CHROME_EXCLUDE_SELECTOR)) {
+      // Forge app section container: kept despite "context-group" in its testid.
+      const isApp = el.matches(JIRA_SELECTORS.ecosystemPanel);
+      if (!isApp && el.matches(SORTABLE_CHROME_EXCLUDE_SELECTOR)) {
         continue;
       }
-      const label = deriveLabel(el);
-      const id = deriveFieldId(el, label);
+      // Stable app id: drop envId (changes per environment), keep appId + moduleKey.
+      const app = el
+        .getAttribute('data-testid')
+        ?.match(/context-group-ari:cloud:ecosystem::extension\/([^/]+)\/[^/]+\/static\/([^/]+)$/);
+      const title = isApp ? el.querySelector(JIRA_SELECTORS.panelTitle)?.textContent?.trim() : '';
+      // Forge app title not rendered yet: skip, observer re-scans once it loads.
+      if (app && !title) {
+        continue;
+      }
+      const label = title || deriveLabel(el);
+      const id = app ? `app:${app[1]}/${app[2]}` : deriveFieldId(el, label);
 
       // ponytail: climb to parent only when it wraps the panel title sibling
       const titleSibling = el.parentElement?.querySelector(JIRA_SELECTORS.panelTitle);
-      const containerNode = (titleSibling && el.parentElement instanceof HTMLElement)
+      const containerNode = (!isApp && titleSibling && el.parentElement instanceof HTMLElement)
         ? el.parentElement
         : el;
 

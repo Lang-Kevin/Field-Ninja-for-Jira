@@ -42,6 +42,15 @@
   transition: opacity .12s ease;
 }
 
+/*
+ * Forge/Connect app sections: Jira's header inside the container is
+ * position:sticky with z-index:95 and would paint over the toggle.
+ */
+[data-testid^="issue-view-layout-templates-views.ui.context.visible-hidden.ui.ecosystem-context-group.container."] > .jfv-field-toggle {
+  z-index: 96;
+  top: 13px;
+}
+
 [data-jfv-host]:hover > .jfv-field-toggle,
 .jfv-field-toggle:focus-visible {
   opacity: 1;

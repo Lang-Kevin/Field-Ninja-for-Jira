@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect, afterEach } from 'vitest';
-import { listFields, listPanels, listUndetectedCandidates } from '../../src/lib/field-registry';
+import { listFields, listPanels, listSections, listUndetectedCandidates } from '../../src/lib/field-registry';
+import { JIRA_SELECTORS } from '../../src/lib/jira-selectors';
 
 function loadFixtureIntoDom(fileName: string): void {
   const html = fs.readFileSync(
@@ -281,6 +282,60 @@ describe('listPanels', () => {
     for (const panel of panels) {
       expect(panel.node).toBe(panel.containerNode);
     }
+  });
+
+  const forge = (app: string, mod: string, title: string) => `
+    <div>
+      <div data-testid="issue-view-layout-templates-views.ui.context.visible-hidden.ui.ecosystem-context-group.container.context-group-ari:cloud:ecosystem::extension/${app}/env-${mod}/static/${mod}">
+        <section data-testid="issue-view-layout-group.common.ui.collapsible-group-factory.context-group-ari:cloud:ecosystem::extension/${app}/env-${mod}/static/${mod}">
+          <div><div><div><div><h2 data-testid="issue-view-layout-group.common.ui.collapsible-group-factory.title">${title}</h2></div></div></div></div>
+          <div>body</div>
+        </section>
+      </div>
+    </div>`;
+
+  it('lists Forge app sections once each with stable app ids and H2 labels', () => {
+    document.body.innerHTML =
+      forge('94d5de1a-112d-4549-bd03-5f910d5fd27b', 'okr-issue-context', 'OKR') +
+      forge('aaaa1111-0000-0000-0000-000000000000', 'backbone-ctx', 'Backbone') +
+      '<div data-testid="issue-field-priority"><label>Priority</label></div>' +
+      '<div data-testid="issue-view-layout-templates-views.ui.context.visible-hidden.ui.ecosystem-context-group.container.automation-issue-audit-log-panel">Audit</div>';
+
+    const panels = listPanels(document.body);
+    const okr = panels.find((p) => p.id === 'app:94d5de1a-112d-4549-bd03-5f910d5fd27b/okr-issue-context');
+    const bb = panels.find((p) => p.id === 'app:aaaa1111-0000-0000-0000-000000000000/backbone-ctx');
+
+    expect(panels).toHaveLength(3);
+    expect(okr?.label).toBe('OKR');
+    expect(bb?.label).toBe('Backbone');
+    expect(okr?.containerNode).toBe(okr?.node);
+    expect(okr?.node.tagName).toBe('DIV');
+    expect(okr?.containerNode).not.toBe(bb?.containerNode);
+    expect(panels.some((p) => p.node.tagName === 'SECTION')).toBe(false);
+    expect(panels.map((p) => p.id)).toContain(
+      'id_issue-view-layout-templates-views.ui.context.visible-hidden.ui.ecosystem-context-group.container.automation-issue-audit-log-panel'
+    );
+  });
+
+  it('keeps the app id stable across envIds', () => {
+    const mk = (env: string) =>
+      `<div data-testid="issue-view-layout-templates-views.ui.context.visible-hidden.ui.ecosystem-context-group.container.context-group-ari:cloud:ecosystem::extension/app1/${env}/static/mod"><h2 data-testid="x.title">T</h2></div>`;
+    document.body.innerHTML = mk('env-a');
+    const a = listPanels(document.body)[0].id;
+    document.body.innerHTML = mk('env-b');
+    expect(listPanels(document.body)[0].id).toBe(a);
+    expect(a).toBe('app:app1/mod');
+  });
+
+  it('skips a Forge app container whose title has not rendered', () => {
+    document.body.innerHTML =
+      '<div data-testid="issue-view-layout-templates-views.ui.context.visible-hidden.ui.ecosystem-context-group.container.context-group-ari:cloud:ecosystem::extension/app1/env-a/static/mod">body</div>';
+    expect(listPanels(document.body)).toHaveLength(0);
+  });
+
+  it('listSections excludes the ecosystem app container', () => {
+    document.body.innerHTML = forge('app1', 'mod', 'OKR');
+    expect(listSections(document.body).some((s) => s.matches(JIRA_SELECTORS.ecosystemPanel))).toBe(false);
   });
 });
 

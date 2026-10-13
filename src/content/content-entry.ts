@@ -10,7 +10,7 @@
  */
 
 import { getIssueType, getIssueRoot, watchIssueContext } from '../lib/jira-context-resolver';
-import { listFields, listPanels, listTabs, listSections, listUndetectedCandidates } from '../lib/field-registry';
+import { listFields, listPanels, listControls, listTabs, listSections, listUndetectedCandidates } from '../lib/field-registry';
 import {
   getPref,
   onPrefsChanged,
@@ -39,7 +39,7 @@ const RESCAN_DEBOUNCE_MS = 300;
  */
 function listAll(root?: ParentNode): FieldMeta[] {
   const byId = new Map<string, FieldMeta>();
-  for (const field of [...listFields(root), ...listPanels(root)]) {
+  for (const field of [...listFields(root), ...listPanels(root), ...listControls(root)]) {
     byId.set(field.id, field);
   }
   return Array.from(byId.values());

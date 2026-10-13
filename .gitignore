@@ -33,3 +33,5 @@ auth.json
 .firefox-jira-profile/
 field-ninja.xpi
 .ff-spike-profile/
+.superpowers/
+.vitest/

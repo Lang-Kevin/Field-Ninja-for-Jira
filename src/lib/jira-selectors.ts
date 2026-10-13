@@ -23,7 +23,11 @@ export const JIRA_SELECTORS = {
   // Heading of an empty field. Only one real sample seen.
   fieldHeading: '[data-component-selector*="field-heading"]', // unconfirmed
   // Third-party sidebar app panels.
-  panel: '[data-testid*="panel"], [data-testid*="-panel"]', // unconfirmed
+  panel:
+    '[data-testid*="panel"], [data-testid*="-panel"], [data-testid^="issue-view-layout-templates-views.ui.context.visible-hidden.ui.ecosystem-context-group.container."]', // unconfirmed
+  // Outer container of a Forge/Connect app section (header + body).
+  ecosystemPanel:
+    '[data-testid^="issue-view-layout-templates-views.ui.context.visible-hidden.ui.ecosystem-context-group.container."]',
   // Global app-shell nav rail (page chrome).
   globalNavExclude: '[aria-label="Sidebar"]',
   // "Child work items" panel chrome.
@@ -46,6 +50,11 @@ export const JIRA_SELECTORS = {
   tab: '[role="tab"]', // unconfirmed
   // Panel title sibling.
   panelTitle: '[data-testid$=".title"]',
+  // Status field wrapper; its parent is the status row (status, Agents, coding tool, Improve).
+  statusFieldWrapper: '[data-testid="issue.views.issue-base.foundation.status.status-field-wrapper"]',
+  aiAgentsButton: '[data-testid="ai-agents-button.button"]',
+  improveIssue: '[data-testid="issue.views.issue-base.foundation.status.improve-issue"]',
+  rovoButton: '[data-testid="platform-ai-button"]',
   // Issue cover image: structural match, unscoped, locale-independent.
   cover: 'div[role="img"][aria-label]:empty',
 } as const;

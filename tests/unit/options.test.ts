@@ -145,7 +145,7 @@ describe('render / usage robustness', () => {
 });
 
 describe('import', () => {
-  let ask: Mock<[], boolean>;
+  let ask: Mock<() => boolean>;
   let warn: { mockRestore(): void };
 
   beforeEach(() => {

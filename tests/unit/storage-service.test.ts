@@ -302,7 +302,7 @@ describe('loadFieldLabels', () => {
   });
 
   it('returns {} when chrome.storage.local.get throws (best-effort)', async () => {
-    mockLocal.get = vi.fn<[key: string | string[] | null], Promise<Record<string, unknown>>>(() => {
+    mockLocal.get = vi.fn<(key: string | string[] | null) => Promise<Record<string, unknown>>>(() => {
       throw new Error('storage unavailable');
     });
 
@@ -319,6 +319,14 @@ describe('saveSettings', () => {
     const settings = await loadSettings();
     expect(settings.showFieldButtons).toBe(false);
     expect(settings.debugOutline).toBe(true);
+  });
+
+  it('popupTheme: defaults dark, roundtrips light, invalid -> dark', async () => {
+    expect((await loadSettings()).popupTheme).toBe('dark');
+    await saveSettings({ popupTheme: 'light' });
+    expect((await loadSettings()).popupTheme).toBe('light');
+    await saveSettings({ popupTheme: 'bogus' as never });
+    expect((await loadSettings()).popupTheme).toBe('dark');
   });
 });
 

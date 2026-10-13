@@ -302,7 +302,7 @@ describe('loadFieldLabels', () => {
   });
 
   it('returns {} when chrome.storage.local.get throws (best-effort)', async () => {
-    mockLocal.get = vi.fn<[key: string | string[] | null], Promise<Record<string, unknown>>>(() => {
+    mockLocal.get = vi.fn<(key: string | string[] | null) => Promise<Record<string, unknown>>>(() => {
       throw new Error('storage unavailable');
     });
 

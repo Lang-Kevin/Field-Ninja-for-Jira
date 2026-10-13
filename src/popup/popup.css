@@ -1,3 +1,37 @@
+:root {
+  color-scheme: dark;
+  --bg: #1d2125;
+  --surface: #22272b;
+  --fg: #b6c2cf;
+  --border: #3b4350;
+  --hover: #2c333a;
+  --muted: #8c9bab;
+  --danger: #f87168;
+  --danger-bg: #42221f;
+  --disabled: #596773;
+  --focus: #579dff;
+  --primary: #579dff;
+  --primary-hover: #85b8ff;
+  --on-primary: #1d2125;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #fff;
+  --surface: #fff;
+  --fg: #172b4d;
+  --border: #dfe1e6;
+  --hover: #f4f5f7;
+  --muted: #6b778c;
+  --danger: #de350b;
+  --danger-bg: #ffebe6;
+  --disabled: #a5adba;
+  --focus: #4c9aff;
+  --primary: #0052cc;
+  --primary-hover: #0065ff;
+  --on-primary: #fff;
+}
+
 body {
   box-sizing: border-box;
   min-width: 240px;
@@ -14,7 +48,8 @@ body {
     Arial,
     sans-serif;
   font-size: 13px;
-  color: #172b4d;
+  color: var(--fg);
+  background: var(--bg);
 }
 
 h1 {
@@ -28,7 +63,7 @@ h1 {
   align-items: center;
   gap: 8px;
   padding: 4px 2px 8px;
-  border-bottom: 1px solid #dfe1e6;
+  border-bottom: 1px solid var(--border);
   margin-bottom: 6px;
   cursor: pointer;
 }
@@ -46,7 +81,7 @@ h1 {
 }
 
 .jfv-field-row:hover {
-  background-color: #f4f5f7;
+  background-color: var(--hover);
 }
 
 .jfv-field-label {
@@ -57,7 +92,7 @@ h1 {
 }
 
 .jfv-popup-empty {
-  color: #6b778c;
+  color: var(--muted);
   padding: 4px 2px;
 }
 
@@ -65,15 +100,15 @@ h1 {
   width: 100%;
   margin-top: 8px;
   padding: 6px;
-  border: 1px solid #dfe1e6;
+  border: 1px solid var(--border);
   border-radius: 3px;
-  background: #fff;
-  color: #de350b;
+  background: var(--surface);
+  color: var(--danger);
   cursor: pointer;
 }
 
 .jfv-reset-button:hover {
-  background-color: #ffebe6;
+  background-color: var(--danger-bg);
 }
 
 .jfv-button-row {
@@ -85,39 +120,39 @@ h1 {
 .jfv-action-button {
   flex: 1 1 0;
   padding: 6px;
-  border: 1px solid #dfe1e6;
+  border: 1px solid var(--border);
   border-radius: 3px;
-  background: #fff;
-  color: #172b4d;
+  background: var(--surface);
+  color: var(--fg);
   cursor: pointer;
 }
 
 .jfv-action-button:hover {
-  background-color: #f4f5f7;
+  background-color: var(--hover);
 }
 
 .jfv-action-button:disabled {
-  color: #a5adba;
+  color: var(--disabled);
   cursor: not-allowed;
 }
 
 .jfv-action-button:disabled:hover {
-  background-color: #fff;
+  background-color: var(--surface);
 }
 
 .jfv-action-button:focus-visible {
-  outline: 2px solid #4c9aff;
+  outline: 2px solid var(--focus);
   outline-offset: 1px;
 }
 
 .jfv-primary {
-  border-color: #0052cc;
-  background: #0052cc;
-  color: #fff;
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--on-primary);
 }
 
 .jfv-primary:hover {
-  background-color: #0065ff;
+  background-color: var(--primary-hover);
 }
 
 .jfv-scope-bar {
@@ -126,7 +161,7 @@ h1 {
   gap: 8px;
   padding: 4px 2px 8px;
   margin-bottom: 6px;
-  border-bottom: 1px solid #dfe1e6;
+  border-bottom: 1px solid var(--border);
 }
 
 .jfv-scope-label {
@@ -134,7 +169,7 @@ h1 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #6b778c;
+  color: var(--muted);
 }
 
 .jfv-scope-bar .jfv-action-button {
@@ -146,14 +181,14 @@ h1 {
 }
 
 .jfv-storage-usage {
-  color: #6b778c;
+  color: var(--muted);
   font-size: 11px;
   margin: 8px 2px 0;
 }
 
 .jfv-storage-error,
 .jfv-storage-usage.jfv-warning {
-  color: #de350b;
+  color: var(--danger);
 }
 
 .jfv-storage-error {

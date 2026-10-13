@@ -16,6 +16,8 @@ export interface FieldMeta {
   kind?: FieldKind;
   /** Protected fields (e.g. Summary, Status) are never user-hideable. */
   protected?: boolean;
+  /** Small control/inline field: overlay renders a corner badge toggle instead of a full button. */
+  compact?: boolean;
 }
 
 /**

@@ -95,3 +95,36 @@ html[data-color-mode='dark'] .jfv-field-toggle--hidden {
   color: #ff8f73;
 }
 
+
+/* Compact badge: corner of the host, outside the host button's click area. */
+.jfv-field-toggle--badge {
+  width: 18px;
+  height: 18px;
+  font-size: 11px;
+  top: -8px;
+  right: -8px;
+  z-index: 96;
+  opacity: 0;
+  pointer-events: none;
+}
+
+[data-jfv-host]:hover > .jfv-field-toggle--badge,
+.jfv-field-toggle--badge:focus-visible,
+.jfv-field-toggle--badge.jfv-field-toggle--hidden {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Hosts of badge toggles must not clip the corner badge. */
+[data-jfv-host]:has(> .jfv-field-toggle--badge) {
+  overflow: visible;
+}
+
+/*
+ * Status-row siblings (Agents, coding tool, Improve): Jira's hover tooltip
+ * opens above the button and covers a top corner badge, so use bottom-right.
+ */
+[data-testid="issue.views.issue-base.foundation.status.status-field-wrapper"] ~ [data-jfv-host] > .jfv-field-toggle--badge {
+  top: auto;
+  bottom: -8px;
+}

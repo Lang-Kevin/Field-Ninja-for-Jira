@@ -10,7 +10,7 @@
  */
 
 import type { FieldMeta, TabMeta } from '../types/field-meta';
-import { deriveFieldId, normalizeLabel } from './field-id';
+import { deriveFieldId, normalizeLabel, hashString } from './field-id';
 import { JIRA_SELECTORS } from './jira-selectors';
 
 /**
@@ -473,6 +473,11 @@ export function listFields(root?: ParentNode): FieldMeta[] {
           PROTECTED_LABELS.has(normalizeLabel(label)) ||
           !!containerNode.closest(PROTECTED_TESTID_SELECTOR) ||
           !!el.closest(PROTECTED_TESTID_SELECTOR),
+        // Status dropdown: badge toggle so it doesn't overlap the clickable button.
+        compact:
+          containerNode.matches(JIRA_SELECTORS.statusFieldWrapper) ||
+          el.matches(JIRA_SELECTORS.statusFieldWrapper) ||
+          undefined,
       };
       byId.set(id, meta);
     } catch {
@@ -663,4 +668,53 @@ export function listPanels(root?: ParentNode): FieldMeta[] {
   }
 
   return Array.from(byId.values());
+}
+
+/**
+ * Status-row buttons (Agents, coding tool, Improve) and the floating Rovo
+ * button. Labels are fixed English — Jira's own text/aria-labels are localized.
+ * Rovo: nearest fixed-position ancestor within 3 levels (the 48x48 wrapper
+ * chain), else the button's parent. ponytail: jsdom/real CSS only; inline or
+ * stylesheet position both work via getComputedStyle.
+ * Coding tool has no testid/id: matched structurally (status-row child with a
+ * button svg path and no testid anywhere), id = hash of the path's `d`.
+ */
+export function listControls(root?: ParentNode): FieldMeta[] {
+  const scope = root ?? document;
+  const out: FieldMeta[] = [];
+  const add = (id: string, label: string, node: Element | null, container: Element | null | undefined) => {
+    if (node instanceof HTMLElement && container instanceof HTMLElement) {
+      out.push({ id, label, node, containerNode: container, compact: true });
+    }
+  };
+  try {
+    const row = Array.from(scope.querySelector(JIRA_SELECTORS.statusFieldWrapper)?.parentElement?.children ?? []).filter(
+      (c) => !c.matches(".jfv-field-toggle"),
+    );
+    const agents = row.find((c) => c.querySelector(JIRA_SELECTORS.aiAgentsButton));
+    add('ctl:ai-agents', 'Agents', agents ?? null, agents);
+    const improve = scope.querySelector(JIRA_SELECTORS.improveIssue);
+    add('ctl:improve-issue', 'Improve Story', improve, improve);
+    for (const c of row) {
+      const d = c.querySelector('button:not(.jfv-field-toggle) svg path')?.getAttribute('d');
+      if (d && c.querySelectorAll('button:not(.jfv-field-toggle)').length === 1 && !c.matches('[data-testid]') && !c.querySelector('[data-testid]')) {
+        add(`ctl:icon:${hashString(d)}`, 'Open in coding tool', c, c);
+      }
+    }
+    const rovo = scope.querySelector(JIRA_SELECTORS.rovoButton);
+    if (rovo) {
+      let box: Element = rovo.parentElement ?? rovo;
+      let cur = rovo.parentElement;
+      for (let i = 0; i < 3 && cur; i++, cur = cur.parentElement) {
+        if (getComputedStyle(cur).position === 'fixed') {
+          box = cur;
+          break;
+        }
+      }
+      add('ctl:rovo', 'Rovo', box, box);
+    }
+  } catch {
+    // best-effort
+  }
+  return out;
 }

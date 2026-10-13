@@ -50,6 +50,11 @@ export const JIRA_SELECTORS = {
   tab: '[role="tab"]', // unconfirmed
   // Panel title sibling.
   panelTitle: '[data-testid$=".title"]',
+  // Status field wrapper; its parent is the status row (status, Agents, coding tool, Improve).
+  statusFieldWrapper: '[data-testid="issue.views.issue-base.foundation.status.status-field-wrapper"]',
+  aiAgentsButton: '[data-testid="ai-agents-button.button"]',
+  improveIssue: '[data-testid="issue.views.issue-base.foundation.status.improve-issue"]',
+  rovoButton: '[data-testid="platform-ai-button"]',
   // Issue cover image: structural match, unscoped, locale-independent.
   cover: 'div[role="img"][aria-label]:empty',
 } as const;

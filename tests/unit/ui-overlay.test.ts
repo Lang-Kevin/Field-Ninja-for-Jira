@@ -27,3 +27,14 @@ describe('mountFieldToggle a11y', () => {
     expect(btn.getAttribute('aria-label')).not.toBe(before);
   });
 });
+
+describe('mountFieldToggle compact', () => {
+  it('adds badge class only when compact', () => {
+    for (const compact of [true, false]) {
+      const containerNode = document.createElement('div');
+      document.body.appendChild(containerNode);
+      mountFieldToggle('h', { id: 'x', label: 'X', containerNode, compact } as any, 'P', '1', false);
+      expect(containerNode.querySelector('.jfv-field-toggle')!.classList.contains('jfv-field-toggle--badge')).toBe(compact);
+    }
+  });
+});

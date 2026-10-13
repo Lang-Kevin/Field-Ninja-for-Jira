@@ -320,6 +320,14 @@ describe('saveSettings', () => {
     expect(settings.showFieldButtons).toBe(false);
     expect(settings.debugOutline).toBe(true);
   });
+
+  it('popupTheme: defaults dark, roundtrips light, invalid -> dark', async () => {
+    expect((await loadSettings()).popupTheme).toBe('dark');
+    await saveSettings({ popupTheme: 'light' });
+    expect((await loadSettings()).popupTheme).toBe('light');
+    await saveSettings({ popupTheme: 'bogus' as never });
+    expect((await loadSettings()).popupTheme).toBe('dark');
+  });
 });
 
 describe('loadPrefs', () => {

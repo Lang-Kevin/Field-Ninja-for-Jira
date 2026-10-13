@@ -22,6 +22,7 @@ import { markOwnMutation } from './dom-observer';
 
 const FIELD_TOGGLE_CLASS = 'jfv-field-toggle';
 const FIELD_TOGGLE_HIDDEN_CLASS = 'jfv-field-toggle--hidden';
+const FIELD_TOGGLE_BADGE_CLASS = 'jfv-field-toggle--badge';
 
 const EYE_OPEN_GLYPH = '\u{1F441}'; // 👁
 const EYE_CLOSED_GLYPH = '\u{1F648}'; // 🙈
@@ -87,6 +88,7 @@ export function mountFieldToggle(
   const button = document.createElement('button');
   button.type = 'button';
   button.className = FIELD_TOGGLE_CLASS;
+  button.classList.toggle(FIELD_TOGGLE_BADGE_CLASS, !!field.compact);
   button.setAttribute('aria-label', toggleButtonLabel(field.label, hidden));
   button.textContent = hidden ? EYE_CLOSED_GLYPH : EYE_OPEN_GLYPH;
   button.classList.toggle(FIELD_TOGGLE_HIDDEN_CLASS, hidden);

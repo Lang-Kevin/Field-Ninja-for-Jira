@@ -15,6 +15,7 @@ import type { GetFieldsResponse } from '../types/messages';
 const SHOW_BUTTONS_CHECKBOX_ID = 'show-buttons-checkbox';
 const DEBUG_OUTLINE_CHECKBOX_ID = 'debug-outline-checkbox';
 const SHRINK_COVER_CHECKBOX_ID = 'shrink-cover-checkbox';
+const DARK_MODE_CHECKBOX_ID = 'dark-mode-checkbox';
 const COVER_HEIGHT_INPUT_ID = 'cover-height-input';
 const STATUS_MESSAGE_ID = 'status-message';
 const SCOPE_BAR_ID = 'scope-bar';
@@ -247,8 +248,20 @@ async function init(): Promise<void> {
   const coverHeightInput = document.getElementById(
     COVER_HEIGHT_INPUT_ID
   ) as HTMLInputElement | null;
-  if (showButtonsCheckbox || debugOutlineCheckbox || shrinkCoverCheckbox || coverHeightInput) {
+  const darkModeCheckbox = document.getElementById(DARK_MODE_CHECKBOX_ID) as HTMLInputElement | null;
+  if (showButtonsCheckbox || debugOutlineCheckbox || darkModeCheckbox || shrinkCoverCheckbox || coverHeightInput) {
     const settings = await loadSettings();
+    const theme = (dark: boolean): void => {
+      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    };
+    theme(settings.popupTheme !== 'light');
+    if (darkModeCheckbox) {
+      darkModeCheckbox.checked = settings.popupTheme !== 'light';
+      darkModeCheckbox.addEventListener('change', () => {
+        theme(darkModeCheckbox.checked);
+        void saveSettings({ popupTheme: darkModeCheckbox.checked ? 'dark' : 'light' });
+      });
+    }
     if (showButtonsCheckbox) {
       showButtonsCheckbox.checked = settings.showFieldButtons;
       showButtonsCheckbox.addEventListener('change', () => {

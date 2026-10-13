@@ -217,9 +217,15 @@ export function onPrefsChanged(cb: () => void): () => void {
   return () => chrome.storage.onChanged.removeListener(listener);
 }
 
+function withDefaults(raw: Partial<Settings> | undefined): Settings {
+  const s = { ...DEFAULT_SETTINGS, ...raw };
+  if (s.popupTheme !== 'light') s.popupTheme = 'dark'; // unknown -> dark
+  return s;
+}
+
 export async function loadSettings(): Promise<Settings> {
   const result = await chrome.storage.sync.get(SETTINGS_STORAGE_KEY);
-  return { ...DEFAULT_SETTINGS, ...(result[SETTINGS_STORAGE_KEY] as Partial<Settings> | undefined) };
+  return withDefaults(result[SETTINGS_STORAGE_KEY] as Partial<Settings> | undefined);
 }
 
 // ponytail: settings-only serialization chain, separate from writeQueue.
@@ -249,7 +255,7 @@ export function onSettingsChanged(cb: (settings: Settings) => void): () => void 
     if (areaName !== 'sync' || !(SETTINGS_STORAGE_KEY in changes)) {
       return;
     }
-    cb({ ...DEFAULT_SETTINGS, ...(changes[SETTINGS_STORAGE_KEY].newValue as Partial<Settings> | undefined) });
+    cb(withDefaults(changes[SETTINGS_STORAGE_KEY].newValue as Partial<Settings> | undefined));
   };
   chrome.storage.onChanged.addListener(listener);
   return () => chrome.storage.onChanged.removeListener(listener);

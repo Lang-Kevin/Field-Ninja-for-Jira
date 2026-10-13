@@ -89,6 +89,7 @@ export interface Settings {
   debugOutline: boolean;
   shrinkCover: boolean;
   coverHeightPx: number;
+  popupTheme?: 'dark' | 'light'; // optional: export/import schema (export-schema.ts) does not carry it
 }
 
 export const SETTINGS_STORAGE_KEY = 'jiraFieldVisibility:settings:v1';
@@ -98,4 +99,5 @@ export const DEFAULT_SETTINGS: Settings = {
   debugOutline: false,
   shrinkCover: false,
   coverHeightPx: 80,
+  popupTheme: 'dark',
 };

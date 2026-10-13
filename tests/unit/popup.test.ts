@@ -15,7 +15,7 @@ vi.mock('../../src/lib/storage-service', () => ({
   setHiddenFields: vi.fn(),
   toggleField: vi.fn(),
 }));
-import { setActivated, setHiddenFields, toggleField } from '../../src/lib/storage-service';
+import { loadSettings, saveSettings, setActivated, setHiddenFields, toggleField } from '../../src/lib/storage-service';
 
 const chromeMock = { tabs: { query: vi.fn(), sendMessage: vi.fn() } };
 let warn: { mockRestore(): void } | undefined;
@@ -35,7 +35,7 @@ const html = `<p id="status-message"></p><div id="scope-bar"><span id="scope-lab
 <button id="activate-button"></button></div><div id="field-list"></div><div id="field-button-row">
 <button id="hide-all-button"></button><button id="show-all-button"></button></div>
 <button id="reset-all-button"></button><div id="settings-block"></div>
-<p id="storage-usage"></p><p id="storage-error" class="jfv-hidden"></p>`;
+<input type="checkbox" id="dark-mode-checkbox"><p id="storage-usage"></p><p id="storage-error" class="jfv-hidden"></p>`;
 
 const vis = (id: string) => !document.getElementById(id)!.classList.contains('jfv-hidden');
 const status = () => document.getElementById('status-message')!.textContent;
@@ -204,5 +204,19 @@ describe('storage usage + write errors', () => {
     expect(chromeMock.tabs.sendMessage.mock.calls.length).toBe(before);
     expect(error().textContent).toBe('Sync storage full (100 KB)');
     expect(document.getElementById('activate-button')!.textContent).toBe('Enable here');
+  });
+});
+
+describe('popup theme', () => {
+  it('applies saved theme and toggle persists', async () => {
+    vi.mocked(loadSettings).mockResolvedValueOnce({ popupTheme: 'light' } as never);
+    await load();
+    const box = document.getElementById('dark-mode-checkbox') as HTMLInputElement;
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(box.checked).toBe(false);
+    box.checked = true;
+    box.dispatchEvent(new Event('change'));
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(saveSettings).toHaveBeenCalledWith({ popupTheme: 'dark' });
   });
 });

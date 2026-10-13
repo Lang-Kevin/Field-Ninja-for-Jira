@@ -4,6 +4,13 @@ Format: gruppiert nach Feature/Milestone, nicht nach Einzel-Commit. Commit-Hashe
 
 ## [Unreleased]
 
+## [0.4.4] — 2026-10-13
+
+`manifest.json`/`package.json` raised to `0.4.4` (0.4.1–0.4.3 were local test builds only). Contains everything merged since 0.4.0, including storage v4.
+
+- feat(controls): issue-header controls hideable per issue type — Agents (`ctl:ai-agents`), Improve Story (`ctl:improve-issue`), Open in coding tool (`ctl:icon:<path hash>`, no stable testid, matched as the status-row child with exactly one button), floating Rovo button (`ctl:rovo`); fixed English labels. Status + these controls use an 18px corner badge outside the button instead of the overlay toggle (no more mis-clicks on the status dropdown); status-row siblings put it bottom-right because Jira's tooltip covers the top corner. Our own badge buttons are excluded from matching (fixed a hide/unhide flicker loop).
+- feat(popup): dark theme by default with a "Dark mode" switch (`Settings.popupTheme`, default `dark`).
+
 - feat(panels): Forge/Connect app sections in the issue sidebar (e.g. OKR, Backbone) are hideable per issue type; id `app:<appId>/<moduleKey>` from the extension ARI (env id dropped), label from the section title; app containers excluded from section auto-hide. Also lists the native automation audit-log panel.
 - chore(deps): npm audit 19 → 0 vulnerabilities (3 critical, all dev tooling — the shipped extension bundles no npm packages). Removed a stray `dependencies` block (transitive packages pinned at vulnerable versions, never imported); bumped esbuild 0.28, happy-dom 21, puppeteer 25, vitest 5 (+ vite 8). Vitest config moved to `test.projects` (unit=happy-dom, integration=node) with `clearMocks: false`. Requires Node >=22.12 (`engines`); puppeteer 25 postinstall is blocked by npm allowScripts — run `npx puppeteer browsers install chrome` once after a fresh install.
 - refactor(selectors): Jira DOM selectors centralized in `src/lib/jira-selectors.ts`, no behaviour change (b845424).
